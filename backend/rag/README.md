@@ -4,7 +4,9 @@
 
 ## Overview
 
-This folder implements the RAG layer that retrieves relevant SQL examples for a given user question. The retrieved examples are passed to the SQL Agent as few-shot demonstrations, grounding it in real query patterns rather than generating SQL blind. The vector store is FAISS, running entirely locally — no cloud vector DB.
+This folder implements the RAG layer that retrieves relevant SQL examples for a given user question. The retrieved examples are passed to the SQL Agent as few-shot demonstrations, grounding it in real query patterns rather than generating SQL blind.
+
+The vector store is FAISS, persisted to disk via Docker named volume. The **Operations Center** (separate app) provides a UI for the BI/dev team to curate the example corpus — reviewing agent-generated SQL from chat feedback and saving good/corrected queries as new few-shot examples.
 
 ## Files
 
@@ -44,20 +46,22 @@ def search(index, query: str, top_k: int = 3) -> list[Document]
 
 ## Design Choices
 
-- **FAISS over cloud vector DB**: Keeps everything local — no Pinecone, no Weaviate. FAISS is fast enough for a small corpus of a few hundred examples.
+- **FAISS over cloud vector DB**: Lightweight, runs anywhere. FAISS is fast enough for a small corpus of a few hundred examples.
 - **RAG as few-shot, not answer path**: Retrieved examples go into the SQL Agent's prompt as demonstrations. The LLM still generates the final SQL — RAG just anchors it to known-good patterns.
-- **Static document corpus initially**: The example corpus is hand-curated for FMCG supply chain queries. Dynamic addition (e.g. saving successful queries) can be added later.
+- **Curated via Operations Center**: The BI/dev team reviews chat feedback (thumbs up/down), inspects agent-generated SQL, and saves good or corrected queries to the FAISS index. This creates a human-in-the-loop feedback loop that continuously improves NL → SQL accuracy.
+- **Static corpus as bootstrap**: The initial example corpus is hand-curated for FMCG supply chain queries. Over time, curated examples from real chat sessions grow the corpus organically.
 
 ## TODO
 
 - [ ] Both files are currently empty scaffolds — implementation pending
-- [ ] Decide on embedding model — needs to be local (sentence-transformers, nomic-embed, or Ollama embeddings)
+- [ ] Decide on embedding model — needs to work with the configured LLM endpoint (sentence-transformers, nomic-embed, or Ollama embeddings)
 - [ ] Define the initial example corpus in `documents.py` — aim for 20–50 diverse NL/SQL pairs covering the key analytics use cases
 - [ ] FAISS index persistence path should come from `settings.py`
-- [ ] Consider adding the user's successful past queries to the index over time (self-improving few-shot)
+- [ ] Ops-backend needs read/write access to the FAISS index for RAG curation
 
 ## Changelog
 
 | Date | Change |
 |------|--------|
+| 2026-03-15 | Updated for Operations Center curation workflow, removed "local-only" language |
 | 2026-03-11 | Initial README — scaffolded, implementation pending |

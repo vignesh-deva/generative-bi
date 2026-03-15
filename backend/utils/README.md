@@ -4,7 +4,7 @@
 
 ## Overview
 
-Thin utility layer. Currently contains the SSE streaming helper that formats and flushes events to the frontend. Kept separate so the event format is defined in one place and all API routes use the same structure.
+Thin utility layer. Contains the SSE streaming helper that formats and flushes events to the frontend. Kept separate so the event format is defined in one place and all API routes use the same structure. The LangGraph pipeline yields events at each node, and the streaming helper wraps them as SSE.
 
 ## Files
 
@@ -49,4 +49,5 @@ Event types emitted during a pipeline run:
 
 | Date | Change |
 |------|--------|
+| 2026-03-15 | Updated for LangGraph pipeline integration |
 | 2026-03-11 | Initial README — scaffolded, implementation pending |

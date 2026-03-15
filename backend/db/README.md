@@ -4,9 +4,11 @@
 
 ## Overview
 
-This folder owns everything related to the SQLite database: how connections are opened and closed, how the schema is described to the LLM, and how the mock dataset is generated. It is the only folder that touches `sqlite3` directly — all other backend modules go through the public API exported from `__init__.py`.
+This folder owns everything related to the **SQLite FMCG business database**: how connections are opened and closed, how the schema is described to the LLM, and how the mock dataset is generated. It is the only folder that touches `sqlite3` directly — all other backend modules go through the public API exported from `__init__.py`.
 
-The database file lives at `data/genbi.db` (resolved relative to this file, so it works from any working directory).
+Chat history and session data are stored in **MongoDB** (see `backend/api/`), not in SQLite. This folder is exclusively for the FMCG supply chain data that the SQL Agent queries.
+
+The database file lives at `data/genbi.db` (resolved relative to this file, so it works from any working directory). In Docker, the `data/` directory is mounted as a named volume for persistence.
 
 ## Files
 
@@ -81,7 +83,7 @@ Generates realistic FMCG data with:
 
 ## Design Choices
 
-- **SQLite over PostgreSQL**: Zero-ops for a local POC. WAL mode gives concurrent readers with a single writer, sufficient for this workload. The abstraction layer makes a future migration straightforward.
+- **SQLite for FMCG data**: Lightweight, zero-ops for the business dataset. WAL mode gives concurrent readers with a single writer, sufficient for this workload. Chat/session data goes to MongoDB instead.
 - **Read-only connection for SQL Agent**: LLM-generated SQL physically cannot mutate data — enforced at the SQLite driver level via `?mode=ro` URI, not just application logic. Defense in depth.
 - **Schema introspected at runtime**: The prompt schema always matches the actual DB state. No risk of drift between hardcoded descriptions and real columns.
 - **Absolute DB path**: `DB_PATH` is resolved relative to `database.py` using `__file__`, so the backend works regardless of which directory it's started from.
@@ -112,6 +114,7 @@ flowchart LR
 
 | Date | Change |
 |------|--------|
+| 2026-03-15 | Clarified SQLite is FMCG-only; chat history moved to MongoDB |
 | 2026-03-11 | Initial README |
 | 2026-03-11 | Fixed hardcoded `DB_PATH` — now resolved relative to `__file__` |
 | 2026-03-11 | Fixed `PRAGMA journal_mode = WAL` error on read-only connection |
