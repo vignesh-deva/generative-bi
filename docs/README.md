@@ -11,7 +11,7 @@ This folder contains detailed documentation for the Generative BI Agent project.
 | File | Purpose |
 |------|---------|
 | `architecture.md` | System design — agent pipeline (LangGraph), service architecture (Docker Compose), data flow, SSE streaming |
-| `data-model.md` | Database schema reference — SQLite tables, relationships, MongoDB collections, FAISS index structure |
+| `data-model.md` | Database schema reference — PostgreSQL tables, relationships, MongoDB collections, pgvector table structure |
 
 ## Status
 
