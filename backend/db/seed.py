@@ -14,8 +14,9 @@ from faker import Faker
 fake = Faker("en_IN")
 random.seed(42)
 
-DB_PATH = pathlib.Path("data/genbi.db")
-SCHEMA_PATH = pathlib.Path("data/migrations/001_initial_schema.sql")
+_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
+DB_PATH = _ROOT / "data" / "genbi.db"
+SCHEMA_PATH = _ROOT / "data" / "migrations" / "001_initial_schema.sql"
 START_DATE = date(2025, 1, 1)
 END_DATE = date(2025, 12, 31)
 

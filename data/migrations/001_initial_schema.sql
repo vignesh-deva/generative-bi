@@ -12,7 +12,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS categories (
     category_id     INTEGER PRIMARY KEY AUTOINCREMENT,
     name            TEXT NOT NULL,                          -- Beverages, Snacks, Dairy & Ready-to-eat
-    created_at      TEXT DEFAULT (DATE('now'))
+    created_at      TEXT DEFAULT (DATETIME('now'))
 );
 
 CREATE TABLE IF NOT EXISTS products (
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS products (
     unit            TEXT NOT NULL,                          -- e.g. 500ml, 100g, 1kg
     mrp             REAL NOT NULL,                          -- Max Retail Price (INR)
     cost_price      REAL NOT NULL,                          -- Manufacturer cost (INR)
-    created_at      TEXT DEFAULT (DATE('now'))
+    created_at      TEXT DEFAULT (DATETIME('now'))
 );
 
 CREATE TABLE IF NOT EXISTS zones (
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS distributors (
     contact_name    TEXT,
     phone           TEXT,
     active          INTEGER DEFAULT 1,                      -- 1 = active, 0 = inactive
-    created_at      TEXT DEFAULT (DATE('now'))
+    created_at      TEXT DEFAULT (DATETIME('now'))
 );
 
 CREATE TABLE IF NOT EXISTS wholesalers (
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS wholesalers (
     contact_name    TEXT,
     phone           TEXT,
     active          INTEGER DEFAULT 1,
-    created_at      TEXT DEFAULT (DATE('now'))
+    created_at      TEXT DEFAULT (DATETIME('now'))
 );
 
 CREATE TABLE IF NOT EXISTS retailers (
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS retailers (
     distributor_id  INTEGER NOT NULL REFERENCES distributors(distributor_id),
     city_id         INTEGER NOT NULL REFERENCES cities(city_id),
     active          INTEGER DEFAULT 1,
-    created_at      TEXT DEFAULT (DATE('now'))
+    created_at      TEXT DEFAULT (DATETIME('now'))
 );
 
 -- ------------------------------------------------------------
@@ -171,3 +171,4 @@ CREATE INDEX IF NOT EXISTS idx_inventory_product ON inventory(product_id);
 CREATE INDEX IF NOT EXISTS idx_orders_date       ON orders(order_date);
 CREATE INDEX IF NOT EXISTS idx_orders_dist       ON orders(distributor_id);
 CREATE INDEX IF NOT EXISTS idx_shipments_order   ON shipments(order_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
