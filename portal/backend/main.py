@@ -2,8 +2,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from portal.backend.db.database import get_pool, close_pool
-from portal.backend.db.mongo import close_client, create_indexes
+from db.database import get_pool, close_pool
+from db.mongo import close_client, create_indexes
 
 
 @asynccontextmanager

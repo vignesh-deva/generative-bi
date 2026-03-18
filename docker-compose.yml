@@ -4,7 +4,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000  # client-side (browser) only; use portal-backend:8000 for SSR
     depends_on:
       - portal-backend
 
@@ -23,7 +23,7 @@ services:
     ports:
       - "3001:3001"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8001
+      - NEXT_PUBLIC_API_URL=http://localhost:8001  # client-side (browser) only; use ops-backend:8001 for SSR
     depends_on:
       - ops-backend
 

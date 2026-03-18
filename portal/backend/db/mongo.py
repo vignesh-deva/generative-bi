@@ -7,7 +7,7 @@ Uses Motor (async MongoDB driver) for non-blocking I/O with FastAPI.
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
-from portal.backend.config.settings import MONGODB_URI, MONGODB_DB_NAME
+from config.settings import MONGODB_URI, MONGODB_DB_NAME
 
 _client: AsyncIOMotorClient | None = None
 _db: AsyncIOMotorDatabase | None = None

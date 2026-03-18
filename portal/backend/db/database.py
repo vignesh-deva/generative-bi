@@ -10,7 +10,7 @@ from typing import Any
 
 import asyncpg
 
-from portal.backend.config.settings import POSTGRES_URI
+from config.settings import POSTGRES_URI
 
 _pool: asyncpg.Pool | None = None
 
