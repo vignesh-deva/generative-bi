@@ -173,7 +173,7 @@ async def check_analytical(conn) -> int:
     """)
     passed = len(rows) == 5 and all(r["revenue"] > 0 for r in rows)
     _result("Top 5 products by revenue returns 5 rows with positive revenue", passed,
-            f"top: {rows[0]['name']} ₹{rows[0]['revenue']:,.0f}" if rows else "no rows")
+            f"top: {rows[0]['name']} INR {rows[0]['revenue']:,.0f}" if rows else "no rows")
     if not passed:
         failures += 1
 
@@ -310,7 +310,7 @@ async def main():
 
     await conn.close()
 
-    print(f"\n{'─' * 50}")
+    print(f"\n{'-' * 50}")
     if total_failures == 0:
         print("\033[32mAll checks passed. Database is ready.\033[0m")
         sys.exit(0)
