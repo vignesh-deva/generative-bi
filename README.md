@@ -10,7 +10,7 @@ Business users interact with the system through a chat interface. Questions are 
 
 A dedicated **Operations Center** portal (separate app) allows the BI/dev team to review feedback, curate few-shot SQL examples in the vector store, and manage dashboard development tickets.
 
-All services run via **Docker Compose**. Model-agnostic — works with Ollama, LM Studio, or any OpenAI-compatible endpoint.
+All services run via **Docker Compose**. LLM and embedding models are consumed via API — works with any OpenAI-compatible endpoint (cloud or self-hosted).
 
 ---
 
@@ -26,7 +26,7 @@ docker-compose.yml
 └── mongodb             Chat history & session data        :27017
 ```
 
-Ollama (or any LLM provider) runs on the host — not managed by Compose.
+The LLM and embedding API provider runs externally — not managed by Compose.
 
 ---
 
@@ -241,12 +241,12 @@ npm run dev
 
 ## Configuration
 
-All model and database settings are configured via environment variables (`.env`). Point to any OpenAI-compatible endpoint — Ollama, LM Studio, cloud APIs, etc.
+All model and database settings are configured via environment variables (`.env`). Point to any OpenAI-compatible API endpoint — cloud providers, self-hosted, etc.
 
 ```env
-LLM_MODEL=llama3
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_API_KEY=ollama
+LLM_MODEL=your-model-name
+LLM_BASE_URL=https://your-llm-api/v1
+LLM_API_KEY=your-api-key
 POSTGRES_URI=postgresql://genbi:genbi@localhost:5432/genbi
 MONGODB_URI=mongodb://localhost:27017
 ```
