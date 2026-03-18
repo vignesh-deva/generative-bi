@@ -1,0 +1,61 @@
+services:
+  portal-frontend:
+    build: ./portal/frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000  # client-side (browser) only; use portal-backend:8000 for SSR
+    depends_on:
+      - portal-backend
+
+  portal-backend:
+    build: ./portal/backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./portal/backend/.env
+    depends_on:
+      - postgres
+      - mongodb
+
+  ops-frontend:
+    build: ./ops/frontend
+    ports:
+      - "3001:3001"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8001  # client-side (browser) only; use ops-backend:8001 for SSR
+    depends_on:
+      - ops-backend
+
+  ops-backend:
+    build: ./ops/backend
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./ops/backend/.env
+    depends_on:
+      - postgres
+      - mongodb
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: genbi
+      POSTGRES_PASSWORD: genbi
+      POSTGRES_DB: genbi
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./data/migrations:/docker-entrypoint-initdb.d
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  pg-data:
+  mongo-data:

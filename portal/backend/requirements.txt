@@ -1,0 +1,27 @@
+# Web framework
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# PostgreSQL (async)
+asyncpg>=0.30
+pgvector>=0.3
+
+# MongoDB (async)
+motor>=3.4
+pymongo>=4.7
+
+# LangGraph
+langgraph>=0.4
+
+# LLM
+langchain-openai>=0.3
+
+# RAG (pgvector integration)
+langchain-postgres>=0.0.12
+
+# Seed data
+Faker==40.8.0
+tzdata==2025.3
+
+# Environment
+python-dotenv>=1.0

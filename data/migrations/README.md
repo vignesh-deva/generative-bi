@@ -1,17 +1,17 @@
 # `data/migrations/`
 
-> SQL migration scripts — schema definitions and seed data for the FMCG supply chain SQLite database.
+> SQL migration scripts — schema definitions and seed data for the FMCG supply chain PostgreSQL database.
 
 ## Overview
 
-These SQL files define the database structure and are used by the seeder (`backend/db/seed.py`) to create and populate the SQLite database. They are applied in order by filename prefix.
+These SQL files define the database structure and are used by the seeder (`portal/backend/db/seed.py`) to create and populate the PostgreSQL database. They are applied in order by filename prefix.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `001_initial_schema.sql` | Creates all tables, constraints, and indexes |
-| `002_seed_data.sql` | Placeholder — actual seeding is done programmatically by `backend/db/seed.py` |
+| `002_seed_data.sql` | Placeholder — actual seeding is done programmatically by `portal/backend/db/seed.py` |
 
 ## Schema Summary
 
@@ -48,10 +48,10 @@ These session tables exist in the current schema but will be removed once chat h
 
 ## Conventions
 
-- All dates stored as ISO text (`YYYY-MM-DD`)
-- Monetary values in INR (Indian Rupees)
-- Boolean flags as integers (1 = active, 0 = inactive)
-- Foreign keys enforced via `PRAGMA foreign_keys = ON`
+- All dates stored as `DATE` (PostgreSQL native type)
+- Monetary values in INR (Indian Rupees), stored as `NUMERIC`
+- Boolean flags as `BOOLEAN`
+- Foreign keys enforced via standard PostgreSQL constraints
 
 ## Changelog
 

@@ -1,0 +1,14 @@
+# Web framework
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# PostgreSQL (async)
+asyncpg>=0.30
+pgvector>=0.3
+
+# MongoDB (async)
+motor>=3.4
+pymongo>=4.7
+
+# Environment
+python-dotenv>=1.0
