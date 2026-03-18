@@ -12,8 +12,8 @@ Configuration and environment variable management for the Operations Center back
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POSTGRES_URI` | `postgresql://genbi:genbi@localhost:5432/genbi` | PostgreSQL connection string |
-| `MONGODB_URI` | `mongodb://localhost:27017` | MongoDB connection string |
+| `POSTGRES_URI` | — | Full PostgreSQL connection string (includes credentials) |
+| `MONGODB_URI` | — | Full MongoDB connection string (includes credentials + `?authSource=admin`) |
 | `MONGODB_DB_NAME` | `genbi` | MongoDB database name |
 
-In Docker, these point to service names (`postgres`, `mongodb`) instead of `localhost`.
+Copy `.env.example` to `.env` and fill in credentials before running. In Docker, service hostnames (`postgres`, `mongodb`) replace `localhost`.

@@ -53,7 +53,7 @@ async def search(query: str, top_k: int = 3) -> list[Document]
 ## TODO
 
 - [ ] Both files are currently empty scaffolds — implementation pending
-- [ ] Decide on embedding model — needs to work with the configured LLM endpoint (sentence-transformers, nomic-embed, or Ollama embeddings)
+- [ ] Decide on embedding model — needs to work with the configured LLM API endpoint (e.g. text-embedding-3-small, nomic-embed, or any OpenAI-compatible embeddings endpoint)
 - [ ] Define the initial example corpus in `documents.py` — aim for 20–50 diverse NL/SQL pairs covering the key analytics use cases
 - [ ] pgvector table name should come from `settings.py` (`PGVECTOR_TABLE`)
 - [ ] Ops-backend needs read/write access to the pgvector table for RAG curation (via shared PostgreSQL connection)

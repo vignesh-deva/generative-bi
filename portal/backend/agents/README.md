@@ -51,7 +51,7 @@ flowchart TD
 - **RAG output feeds SQL Agent as few-shot examples** — not used as a standalone answer path. This grounds the LLM in real query patterns rather than generating SQL blind.
 - **Validation Agent provides feedback, never blocks** — it returns structured feedback that the SQL Agent uses on retry. Max 2 retries to prevent infinite loops.
 - **Each agent is stateless** — agents receive all context they need as function arguments. No shared mutable state between pipeline steps.
-- **Model-agnostic** — all agents call the LLM endpoint configured in `portal/backend/config/settings.py`. Works with Ollama, LM Studio, or any OpenAI-compatible API.
+- **Model-agnostic** — all agents call the LLM endpoint configured in `portal/backend/config/settings.py`. Works with any OpenAI-compatible API (cloud or self-hosted).
 
 ## TODO
 
