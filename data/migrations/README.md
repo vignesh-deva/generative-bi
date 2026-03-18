@@ -1,17 +1,16 @@
 # `data/migrations/`
 
-> SQL migration scripts — schema definitions and seed data for the FMCG supply chain PostgreSQL database.
+> SQL migration scripts — schema definitions for the FMCG supply chain PostgreSQL database.
 
 ## Overview
 
-These SQL files define the database structure and are used by the seeder (`portal/backend/db/seed.py`) to create and populate the PostgreSQL database. They are applied in order by filename prefix.
+These SQL files are automatically applied by the PostgreSQL Docker container on first boot via `docker-entrypoint-initdb.d`. They run in filename order. Seeding (mock data) is handled separately by `portal/backend/db/seed.py`.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `001_initial_schema.sql` | Creates all tables, constraints, and indexes |
-| `002_seed_data.sql` | Placeholder — actual seeding is done programmatically by `portal/backend/db/seed.py` |
+| `001_initial_schema.sql` | Creates all tables, indexes, and the pgvector extension |
 
 ## Schema Summary
 
@@ -37,19 +36,17 @@ These SQL files define the database structure and are used by the seeder (`porta
 | `sales` | Sell-through at retailer level (date, qty, selling price) |
 | `inventory` | Weekly stock snapshots per product per distributor |
 
-### Session/App Data (to be migrated)
+### RAG
 | Table | Description |
 |-------|-------------|
-| `chat_sessions` | Chat session metadata — **will move to MongoDB** |
-| `chat_messages` | Chat messages — **will move to MongoDB** |
-| `insight_requests` | Dashboard requests — **will move to MongoDB** |
+| `fewshot_examples` | NL → SQL pairs with pgvector embeddings for few-shot retrieval |
 
-These session tables exist in the current schema but will be removed once chat history and requests are fully served by MongoDB.
+> Chat sessions, messages, feedback, and dashboard requests are stored in **MongoDB** — not PostgreSQL.
 
 ## Conventions
 
 - All dates stored as `DATE` (PostgreSQL native type)
-- Monetary values in INR (Indian Rupees), stored as `NUMERIC`
+- Monetary values in INR (Indian Rupees), stored as `NUMERIC(10,2)`
 - Boolean flags as `BOOLEAN`
 - Foreign keys enforced via standard PostgreSQL constraints
 
@@ -57,4 +54,6 @@ These session tables exist in the current schema but will be removed once chat h
 
 | Date | Change |
 |------|--------|
-| 2026-03-15 | Initial README — documented schema, noted MongoDB migration for session tables |
+| 2026-03-18 | Removed stale session table references (moved to MongoDB); removed 002_seed_data.sql placeholder |
+| 2026-03-15 | Migrated from SQLite to PostgreSQL; added pgvector fewshot_examples table |
+| 2026-03-11 | Initial README |

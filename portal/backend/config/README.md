@@ -1,56 +1,48 @@
 # `portal/backend/config/`
 
-> Application settings — environment-driven configuration for the LLM endpoint, databases, and runtime behaviour.
+> Application settings — environment-driven configuration for the LLM API, databases, and runtime behaviour.
 
 ## Overview
 
-Single source of truth for all configurable values. Settings are loaded from environment variables (via `.env`) so the LLM backend, PostgreSQL DSN, MongoDB URI, and pgvector settings can be changed without touching code.
+Single source of truth for all configurable values. Settings are loaded from environment variables (via `.env`) so the LLM endpoint, PostgreSQL URI, and MongoDB URI can be changed without touching code.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `settings.py` | Pydantic settings model — reads from `.env`, exposes typed config to all modules |
+| `settings.py` | Loads env vars via `python-dotenv` — exposes typed config to all modules |
 | `__init__.py` | Package init |
 
-## Planned Configuration
+## Environment Variables
 
-```python
-# LLM settings
-LLM_BASE_URL: str         # e.g. http://localhost:11434/v1  (Ollama)
-LLM_MODEL: str            # e.g. llama3, mistral, deepseek-coder
-LLM_API_KEY: str          # "ollama" for local, real key for cloud
-LLM_TEMPERATURE: float    # default 0.0 for deterministic SQL
-LLM_MAX_TOKENS: int       # response length cap
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_MODEL` | `your-model-name` | Model identifier passed to the API |
+| `LLM_BASE_URL` | — | Base URL of any OpenAI-compatible API endpoint |
+| `LLM_API_KEY` | — | API key for the LLM provider |
+| `POSTGRES_URI` | — | Full asyncpg connection string (includes credentials) |
+| `MONGODB_URI` | — | Full MongoDB connection string (includes credentials + `?authSource=admin`) |
+| `MONGODB_DB_NAME` | `genbi` | MongoDB database name |
 
-# Database settings
-POSTGRES_DSN: str         # FMCG business data + pgvector (asyncpg format)
-MONGODB_URI: str          # Chat history & sessions (default: mongodb://localhost:27017)
-MONGODB_DB_NAME: str      # Database name (default: genbi)
-
-# RAG settings
-PGVECTOR_TABLE: str       # Table name for pgvector few-shot store (default: rag_examples)
-
-# Agent settings
-SQL_MAX_RETRIES: int      # Validation retry limit (default: 2)
-```
+Copy `.env.example` to `.env` and fill in values before running.
 
 ## Design Choices
 
-- **Model-agnostic by design**: Works with Ollama, LM Studio, or any OpenAI-compatible endpoint. The base URL and model name are the only things that change.
-- **Temperature 0 for SQL generation**: Deterministic output is critical for SQL — you don't want creative variation in query structure.
-- **Dual database config**: PostgreSQL DSN for FMCG data and pgvector, MongoDB URI for chat/session storage. Each can be configured independently.
-- **Docker-aware defaults**: In Docker, services reference container hostnames (e.g. `postgresql://postgres:5432/genbi`, `mongodb://mongodb:27017`). Locally, they default to `localhost`.
+- **Model-agnostic by design**: Works with any OpenAI-compatible API — cloud providers, self-hosted, etc. Only the base URL and model name change.
+- **Temperature 0 for SQL generation**: Deterministic output is critical — you don't want creative variation in query structure.
+- **Dual database config**: PostgreSQL URI for FMCG data and pgvector; MongoDB URI for chat/session storage. Each configured independently.
+- **Docker-aware URIs**: In Docker, service hostnames replace `localhost` (e.g. `postgres`, `mongodb`). In `.env.example` for Docker vs local are documented separately.
 
 ## TODO
 
-- [ ] `settings.py` is currently an empty scaffold — implementation pending
-- [ ] Use `pydantic-settings` (`BaseSettings`) for automatic `.env` loading and type validation
-- [ ] `POSTGRES_DSN` override would allow pointing at a different database for testing
+- [ ] Add `SQL_MAX_RETRIES` config for the validation retry limit (currently hardcoded as 2)
+- [ ] Add `LLM_TEMPERATURE` and `LLM_MAX_TOKENS` for finer LLM control
+- [ ] Consider migrating to `pydantic-settings` (`BaseSettings`) for type validation
 
 ## Changelog
 
 | Date | Change |
 |------|--------|
-| 2026-03-15 | Updated for PostgreSQL (asyncpg), pgvector, MongoDB, Docker-aware config |
-| 2026-03-11 | Initial README — scaffolded, implementation pending |
+| 2026-03-18 | Removed Ollama-specific references; corrected POSTGRES_DSN → POSTGRES_URI; marked settings.py as implemented |
+| 2026-03-15 | Updated for PostgreSQL, pgvector, MongoDB, Docker-aware config |
+| 2026-03-11 | Initial README |

@@ -12,14 +12,14 @@ Runs as a Docker container (port 8000) or standalone via `uvicorn`.
 
 ```
 portal/backend/
-├── main.py              # FastAPI app entry point, router registration, lifespan
+├── main.py              # FastAPI app entry point, lifespan (pool init + index creation)
 ├── agents/              # Individual agent modules (classifier, guardrails, RAG, SQL, etc.)
 ├── graph/               # LangGraph workflow definition (pipeline.py)
 ├── api/                 # FastAPI route handlers (chat, history, requests)
-├── db/                  # PostgreSQL connection management, schema introspection, seeder
+├── db/                  # PostgreSQL + MongoDB connection management, seeder, verifier
 ├── rag/                 # pgvector store and few-shot document corpus
 ├── utils/               # SSE streaming helpers
-├── config/              # Pydantic settings (env-driven)
+├── config/              # Environment-driven settings
 ├── requirements.txt     # Python dependencies
 └── .env.example         # Environment variable template
 ```
@@ -31,7 +31,7 @@ Each subfolder has its own README with detailed documentation.
 - **Chat endpoint** — receives NL questions, runs the LangGraph agent pipeline, streams SSE events back to the frontend
 - **Agent pipeline** — Classifier, Guardrails, and RAG run in parallel (fan-out), then Schema Agent → SQL Agent ↔ Validation Agent → PostgreSQL execution → Insight Agent
 - **Chat history** — persisted in MongoDB (sessions, messages, feedback)
-- **FMCG data** — queried via PostgreSQL (read-only for LLM-generated SQL)
+- **FMCG data** — queried via PostgreSQL (read-only transactions for LLM-generated SQL)
 - **Dashboard requests** — business users submit requests for new dashboards/reports, tracked with comments
 
 ## Databases
@@ -47,7 +47,7 @@ Each subfolder has its own README with detailed documentation.
 ### Docker (recommended)
 ```bash
 # From project root
-docker-compose up portal-backend
+docker compose up portal-backend
 ```
 
 ### Manual
@@ -56,19 +56,27 @@ cd portal/backend
 python -m venv venv && source venv/bin/activate  # or venv\Scripts\activate on Windows
 pip install -r requirements.txt
 cp .env.example .env
-# configure LLM endpoint, PostgreSQL DSN, and MongoDB URI in .env
+# Fill in LLM endpoint, POSTGRES_URI, and MONGODB_URI in .env
 uvicorn main:app --reload --port 8000
+```
+
+### Seed the database
+```bash
+cd portal/backend
+python -m db.seed    # populate mock FMCG data
+python -m db.verify  # verify 33 checks pass
 ```
 
 ## TODO
 
-- [ ] `main.py` is currently an empty scaffold — implementation pending
-- [ ] `graph/` directory and `pipeline.py` do not exist yet — LangGraph workflow needs to be created
-- [ ] `requirements.txt` needs LangGraph, motor (async MongoDB), asyncpg, pgvector, and other dependencies
-- [ ] `.env.example` does not exist yet
+- [ ] Agent files are currently empty scaffolds — LangGraph pipeline implementation pending
+- [ ] `graph/pipeline.py` needs to be created
+- [ ] SSE event schema needs to be finalised and shared with frontend TypeScript types
+- [ ] Auth/session management not yet defined
 
 ## Changelog
 
 | Date | Change |
 |------|--------|
+| 2026-03-18 | Cleared stale TODOs; added seed/verify commands; updated databases table |
 | 2026-03-15 | Initial README — LangGraph, MongoDB, Docker architecture |
