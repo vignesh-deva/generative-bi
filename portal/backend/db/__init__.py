@@ -1,10 +1,11 @@
-from backend.db.database import execute_query, get_connection, get_readonly_connection
-from backend.db.models import get_schema_prompt, get_table_names
+from db.database import get_pool, close_pool, execute_query
+from db.mongo import get_db, close_client, create_indexes
 
 __all__ = [
-    "get_connection",
-    "get_readonly_connection",
+    "get_pool",
+    "close_pool",
     "execute_query",
-    "get_schema_prompt",
-    "get_table_names",
+    "get_db",
+    "close_client",
+    "create_indexes",
 ]
