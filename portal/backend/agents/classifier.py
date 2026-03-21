@@ -6,7 +6,7 @@ Returns one of: "analytics", "chitchat", "out_of_scope"
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
@@ -22,7 +22,7 @@ Respond with ONLY the category name, nothing else."""
 
 async def classify(query: str) -> str:
     response = await _client.chat.completions.create(
-        model=LLM_MODEL,
+        model=LLM_MODEL_SMALL,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": query},

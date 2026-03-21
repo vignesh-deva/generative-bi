@@ -19,8 +19,9 @@ class FewshotCreate(BaseModel):
 @router.get("/fewshots")
 async def list_fewshots(limit: int = 100, skip: int = 0):
     result = await execute_query(
-        f"SELECT example_id, question, sql_query, created_at FROM fewshot_examples "
-        f"ORDER BY created_at DESC LIMIT {int(limit)} OFFSET {int(skip)}"
+        "SELECT example_id, question, sql_query, created_at FROM fewshot_examples "
+        "ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        [limit, skip],
     )
     return [
         {

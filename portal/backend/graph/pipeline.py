@@ -31,9 +31,8 @@ from agents.schema_agent import get_schema_context
 from agents.sql_agent import generate_sql
 from agents.validation_agent import validate_sql
 from agents.insight_agent import generate_insight
+from config.settings import MAX_SQL_RETRIES
 from db.database import execute_query
-
-MAX_SQL_RETRIES = 2
 
 
 # ── State schema ───────────────────────────────────────────────────
@@ -168,11 +167,12 @@ def build_pipeline() -> StateGraph:
     graph.add_node("execute", execute_node)
     graph.add_node("insight_agent", insight_node)
 
-    # Entry: parallel fan-out to classifier, guardrails, rag
-    graph.set_entry_point("classifier")
+    # Parallel fan-out: entry flows to all three nodes simultaneously
+    graph.add_edge("__start__", "classifier")
+    graph.add_edge("__start__", "guardrails")
+    graph.add_edge("__start__", "rag")
 
-    # Parallel branches — classifier, guardrails, rag all start from entry
-    # LangGraph handles fan-out via multiple edges from the same source
+    # Fan-in: all three converge at schema_agent
     graph.add_edge("classifier", "schema_agent")
     graph.add_edge("guardrails", "schema_agent")
     graph.add_edge("rag", "schema_agent")

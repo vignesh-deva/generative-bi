@@ -3,6 +3,7 @@ Dashboard requests endpoints — business users can submit requests
 for new dashboards/reports. The ops team manages them from the ops portal.
 """
 
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
@@ -20,7 +21,9 @@ class CreateRequest(BaseModel):
 
 @router.post("")
 async def create_request(req: CreateRequest):
+    request_id = str(uuid.uuid4())
     doc = {
+        "request_id": request_id,
         "title": req.title,
         "description": req.description,
         "status": "Pending",
@@ -28,8 +31,8 @@ async def create_request(req: CreateRequest):
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }
-    result = await dashboard_requests().insert_one(doc)
-    return {"id": str(result.inserted_id), "status": "Pending"}
+    await dashboard_requests().insert_one(doc)
+    return {"id": request_id, "status": "Pending"}
 
 
 @router.get("")
@@ -50,9 +53,11 @@ async def list_requests(limit: int = 50, skip: int = 0):
     return items
 
 
-@router.get("/{title}")
-async def get_request(title: str):
-    doc = await dashboard_requests().find_one({"title": title}, {"_id": 0})
+@router.get("/{request_id}")
+async def get_request(request_id: str):
+    doc = await dashboard_requests().find_one(
+        {"request_id": request_id}, {"_id": 0}
+    )
     if not doc:
         raise HTTPException(status_code=404, detail="Request not found")
     doc["created_at"] = doc["created_at"].isoformat()

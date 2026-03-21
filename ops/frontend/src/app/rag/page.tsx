@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, FormEvent } from "react";
-import { Plus, BookOpen, Trash2 } from "lucide-react";
+import { Plus, BookOpen } from "lucide-react";
 import { fetchFewshots, createFewshot } from "@/lib/api";
 
 type Fewshot = {

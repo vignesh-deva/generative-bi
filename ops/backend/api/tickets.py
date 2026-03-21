@@ -36,9 +36,9 @@ async def list_tickets(limit: int = 50, skip: int = 0):
     return items
 
 
-@router.patch("/{title}/status")
-async def update_status(title: str, body: StatusUpdate):
-    doc = await dashboard_requests().find_one({"title": title})
+@router.patch("/{request_id}/status")
+async def update_status(request_id: str, body: StatusUpdate):
+    doc = await dashboard_requests().find_one({"request_id": request_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
@@ -58,5 +58,5 @@ async def update_status(title: str, body: StatusUpdate):
             }
         }
 
-    await dashboard_requests().update_one({"title": title}, update)
+    await dashboard_requests().update_one({"request_id": request_id}, update)
     return {"status": body.status}

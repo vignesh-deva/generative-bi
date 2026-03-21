@@ -42,5 +42,6 @@ def dashboard_requests():
 
 
 async def create_indexes():
+    await dashboard_requests().create_index("request_id", unique=True)
     await dashboard_requests().create_index("status")
     await dashboard_requests().create_index("created_at")

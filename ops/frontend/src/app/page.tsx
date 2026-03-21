@@ -13,6 +13,7 @@ import {
 import { fetchTickets } from "@/lib/api";
 
 type DashboardRequest = {
+  request_id: string;
   title: string;
   description: string | null;
   status: "Pending" | "In Progress" | "Done" | "Rejected";
@@ -133,14 +134,14 @@ export default function TicketsPage() {
           {filtered.map((t) => {
             const cfg = STATUS_CONFIG[t.status] || STATUS_CONFIG.Pending;
             const Icon = cfg.icon;
-            const isExpanded = expanded === t.title;
+            const isExpanded = expanded === t.request_id;
             return (
               <div
-                key={t.title + t.created_at}
+                key={t.request_id}
                 className="rounded-xl border border-[var(--card-border)] bg-white shadow-sm transition-shadow hover:shadow-md"
               >
                 <button
-                  onClick={() => setExpanded(isExpanded ? null : t.title)}
+                  onClick={() => setExpanded(isExpanded ? null : t.request_id)}
                   className="flex w-full items-center gap-4 px-5 py-3.5 text-left"
                 >
                   <div
