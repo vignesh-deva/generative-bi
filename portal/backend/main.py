@@ -5,6 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.dashboard import router as dashboard_router
+from api.chat import router as chat_router
+from api.history import router as history_router
+from api.requests import router as requests_router
 from db.database import get_pool, close_pool
 from db.mongo import close_client, create_indexes
 
@@ -32,6 +35,9 @@ app.add_middleware(
 )
 
 app.include_router(dashboard_router)
+app.include_router(chat_router)
+app.include_router(history_router)
+app.include_router(requests_router)
 
 
 @app.get("/health")
