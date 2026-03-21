@@ -1,24 +1,10 @@
 # `docs/`
 
-> Project documentation — architecture, data model, and design references.
-
-## Overview
-
-This folder contains detailed documentation for the Generative BI Agent project. These docs go deeper than the root README and serve as reference material for developers working on the system.
+> Project documentation for the Generative BI Agent.
 
 ## Files
 
-| File | Purpose |
-|------|---------|
-| `architecture.md` | System design — agent pipeline (LangGraph), service architecture (Docker Compose), data flow, SSE streaming |
-| `data-model.md` | Database schema reference — PostgreSQL tables, relationships, MongoDB collections, pgvector table structure |
-
-## Status
-
-Both files are currently empty scaffolds — detailed content will be added as implementation progresses.
-
-## Changelog
-
-| Date | Change |
-|------|--------|
-| 2026-03-15 | Initial README |
+| File | Purpose | How to view |
+|------|---------|-------------|
+| `agent-pipeline-design.html` | **Agent pipeline architecture** — 4-stage agentic NL-to-SQL design with visual diagrams, agent inventory, error taxonomy, parallelism timeline, and model config | Open in any browser |
+| `NOTEPAD.md` | Running log of decisions, sprint progress, and next steps | Any text editor / GitHub |

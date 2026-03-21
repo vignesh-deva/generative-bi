@@ -78,6 +78,7 @@ def dashboard_requests():
     Document schema:
     {
         "_id": ObjectId,
+        "request_id": str (UUID),
         "title": str,
         "description": str | None,
         "status": "Pending" | "In Progress" | "Done" | "Rejected",
@@ -100,5 +101,6 @@ async def create_indexes():
     await chat_sessions().create_index("session_id", unique=True)
     await chat_messages().create_index("session_id")
     await chat_messages().create_index("created_at")
+    await dashboard_requests().create_index("request_id", unique=True)
     await dashboard_requests().create_index("status")
     await dashboard_requests().create_index("created_at")

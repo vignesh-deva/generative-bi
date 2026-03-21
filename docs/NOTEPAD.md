@@ -22,27 +22,57 @@ A running log of decisions, next steps, and open questions for the Generative BI
 - [x] Updated all READMEs to reflect current architecture
 - [x] LLM config updated — model-agnostic via any OpenAI-compatible API (not Ollama-specific)
 
-### Up Next — UI & Dashboards
-- [ ] Portal frontend — Dashboard page (hardcoded FMCG charts, 2×2 grid)
-- [ ] Portal frontend — Chat page (UI shell, SSE-ready but no agent yet)
-- [ ] Portal frontend — Requests page (submit + list dashboard requests)
-- [ ] Portal frontend — Recent (chat history list)
-- [ ] Ops frontend — Tickets page
-- [ ] Ops frontend — Feedback page
-- [ ] Ops frontend — RAG Curation page
-- [ ] Wire portal frontend to portal backend health endpoint (confirm Docker connectivity)
+### Completed — UI & Dashboards
+- [x] Portal frontend — Dashboard page (3×3 KPI/chart grid, recharts, INR formatting)
+- [x] Portal frontend — Chat page (message bubbles, SSE streaming, suggestion chips, SQL viewer)
+- [x] Portal frontend — Requests page (submit form + expandable list with status badges)
+- [x] Portal frontend — Recent (chat history list with relative timestamps, session resume links)
+- [x] Portal frontend — API lib (`fetchSessions`, `fetchMessages`, `fetchRequests`, `createRequest`, `checkHealth`)
+- [x] Portal backend — `/api/chat` SSE endpoint with MongoDB session/message persistence (placeholder response)
+- [x] Portal backend — `/api/history/sessions` + `/sessions/{id}/messages` (chat history)
+- [x] Portal backend — `/api/requests` POST/GET (dashboard requests)
+- [x] Ops frontend — full shell (AppShell, Sidebar, Header — violet theme)
+- [x] Ops frontend — Tickets page (filtered list, status tabs, expandable details)
+- [x] Ops frontend — Feedback page (thumbs up/down filter, AI responses with SQL)
+- [x] Ops frontend — RAG Curation page (list/add few-shot NL→SQL examples)
+- [x] Ops backend — `/api/tickets` + PATCH status, `/api/feedback`, `/api/rag/fewshots` GET/POST
+- [x] Ops backend — db module (PostgreSQL pool + MongoDB connection, same DBs as portal)
+- [x] Wire portal frontend to portal backend health endpoint
 
-### After UI — Agent Pipeline
-- [ ] `graph/pipeline.py` — LangGraph state schema, node wiring, parallel fan-out, retry loop
-- [ ] Classifier agent (intent: analytics / chitchat / out-of-scope)
-- [ ] Schema Agent (introspect live PostgreSQL schema for SQL Agent prompt)
-- [ ] SQL Agent (NL → PostgreSQL SQL)
-- [ ] Validation Agent + retry loop (max 2 retries)
-- [ ] Insight Agent (query results → plain English)
-- [ ] RAG Agent (pgvector few-shot retrieval) — needs embedding model decision first
-- [ ] Guardrails agent (SQL injection / prompt injection checks)
-- [ ] `api/chat.py` — wire pipeline to SSE endpoint
-- [ ] Seed `fewshot_examples` with initial NL→SQL corpus
+### Completed — Agent Pipeline (v1 skeleton, now superseded by v2 design)
+- [x] `graph/pipeline.py` — LangGraph state schema, nodes, parallel fan-out, conditional routing
+- [x] Initial agent implementations (Classifier, Guardrails, RAG, Schema, SQL, Validation, Insight)
+
+### Completed — Pipeline Redesign (v2)
+- [x] Designed 4-stage agentic pipeline with 12 agents — see `docs/agent-pipeline-design.html`
+- [x] Every module is an agent (LLM + optional tools) for extensibility
+- [x] Small/large model split for cost + latency optimization
+- [x] Schema Linking replaces full schema dump — only relevant tables sent to LLM
+- [x] Semantic Layer — metric definitions, value samples, FK join paths, business rules
+- [x] LLM-based Guardrails (replaces regex-only)
+- [x] Classifier + Disambiguator — asks user to clarify ambiguous queries
+- [x] SQL Agent with Decomposer sub-agent for complex multi-step queries
+- [x] EXPLAIN dry-run validation (free, deterministic) + LLM logic check
+- [x] Error taxonomy (syntax, schema, logic, runtime) + Correction Agent
+- [x] Self-repair loop increased to max 3 iterations
+
+### Up Next — Implement v2 Pipeline
+- [ ] Add `LLM_MODEL_SMALL` + `MAX_SQL_RETRIES` to `config/settings.py`
+- [ ] Create `agents/tools/` — `schema_tools.py`, `rag_tools.py`, `semantic_tools.py`, `sql_tools.py`
+- [ ] Implement Schema Linker agent (replace full Schema Agent)
+- [ ] Implement Semantic Layer agent + static knowledge base
+- [ ] Implement Classifier + Disambiguator (intent + ambiguity, SSE clarification flow)
+- [ ] Upgrade Guardrails to LLM-based
+- [ ] Implement SQL Agent with Decomposer + Sub-query Generator sub-agents
+- [ ] Implement EXPLAIN dry-run validation (`sql_tools.dry_run_explain`)
+- [ ] Implement Error Classifier + Correction Agent
+- [ ] Implement Logic Check agent
+- [ ] Rewrite `graph/pipeline.py` for v2 (4 stages, new nodes, updated routing)
+- [ ] Wire v2 pipeline into `api/chat.py` — replace placeholder with `pipeline.ainvoke()` + SSE streaming
+- [ ] Choose embedding model for RAG (e.g., `nomic-embed-text`, `text-embedding-3-small`)
+- [ ] Implement vector similarity search in RAG Agent (replace DB fallback with pgvector `<=>`)
+- [ ] Seed `fewshot_examples` with initial NL→SQL corpus (10-20 FMCG examples)
+- [ ] End-to-end test: chat UI → SSE → pipeline → PostgreSQL → insight → streamed response
 
 ---
 
@@ -74,8 +104,7 @@ A running log of decisions, next steps, and open questions for the Generative BI
 
 - Power BI export — format and integration approach TBD
 - Auth/access control for ops portal — TBD
-- Guardrails agent — exact rules for SQL injection / prompt injection checks TBD
-- Embedding model choice for RAG — needs to be decided before implementing RAG Agent
+- Embedding model choice for RAG — needs to be decided before implementing vector search in RAG Agent
 
 ---
 
