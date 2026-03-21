@@ -15,8 +15,8 @@ services:
     env_file:
       - ./portal/backend/.env
     environment:
-      - POSTGRES_URI=postgresql://genbi:genbi_dev_pw@postgres:5432/genbi
-      - MONGODB_URI=mongodb://genbi:genbi_dev_pw@mongodb:27017/?authSource=admin
+      - POSTGRES_URI=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - MONGODB_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/?authSource=admin
     depends_on:
       postgres:
         condition: service_healthy
@@ -39,8 +39,8 @@ services:
     env_file:
       - ./ops/backend/.env
     environment:
-      - POSTGRES_URI=postgresql://genbi:genbi_dev_pw@postgres:5432/genbi
-      - MONGODB_URI=mongodb://genbi:genbi_dev_pw@mongodb:27017/?authSource=admin
+      - POSTGRES_URI=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - MONGODB_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/?authSource=admin
     depends_on:
       postgres:
         condition: service_healthy
