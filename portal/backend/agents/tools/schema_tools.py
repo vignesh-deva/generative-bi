@@ -52,6 +52,8 @@ async def pull_schema(tables: list[str]) -> str:
     """
     col_result = await execute_query(col_query, tables)
 
+    offset = len(tables)
+    fk_placeholders_target = ", ".join(f"${i+1+offset}" for i in range(len(tables)))
     fk_query = f"""
     SELECT
         tc.table_name AS from_table,
@@ -65,29 +67,10 @@ async def pull_schema(tables: list[str]) -> str:
         ON tc.constraint_name = ccu.constraint_name
     WHERE tc.constraint_type = 'FOREIGN KEY'
         AND tc.table_schema = 'public'
-        AND (tc.table_name IN ({placeholders}) OR ccu.table_name IN ({placeholders}))
-    """
-    fk_params = tables + tables
-    fk_placeholders_query = fk_query
-    # Rebuild with correct placeholder indices
-    offset = len(tables)
-    fk_placeholders_query = f"""
-    SELECT
-        tc.table_name AS from_table,
-        kcu.column_name AS from_column,
-        ccu.table_name AS to_table,
-        ccu.column_name AS to_column
-    FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu
-        ON tc.constraint_name = kcu.constraint_name
-    JOIN information_schema.constraint_column_usage ccu
-        ON tc.constraint_name = ccu.constraint_name
-    WHERE tc.constraint_type = 'FOREIGN KEY'
-        AND tc.table_schema = 'public'
         AND (tc.table_name IN ({placeholders})
-             OR ccu.table_name IN ({", ".join(f"${i+1+offset}" for i in range(len(tables)))}))
+             OR ccu.table_name IN ({fk_placeholders_target}))
     """
-    fk_result = await execute_query(fk_placeholders_query, fk_params)
+    fk_result = await execute_query(fk_query, tables + tables)
 
     # Format columns
     table_cols: dict[str, list[str]] = {}

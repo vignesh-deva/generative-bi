@@ -16,6 +16,10 @@ async def dry_run_explain(sql: str) -> dict:
         {"success": True, "plan": "..."} on success
         {"success": False, "error": "..."} on failure
     """
+    sql_stripped = sql.strip().rstrip(";").strip()
+    if not sql_stripped.upper().startswith(("SELECT", "WITH")):
+        return {"success": False, "error": "Only SELECT/WITH queries can be explained"}
+
     pool = await get_pool()
     try:
         async with pool.acquire() as conn:

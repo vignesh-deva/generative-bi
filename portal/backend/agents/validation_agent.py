@@ -90,19 +90,28 @@ async def correct_sql(
     # Pull fresh schema for the relevant tables
     schema_context = await pull_schema(tables)
 
-    # For schema errors, also fetch sample values for potentially misspelled columns
+    # For schema errors, fetch sample values from text columns to help correction
     sample_info = ""
     if error_category == "schema" and tables:
         try:
+            from db.database import execute_query as _eq
+            # Find actual text/varchar columns for the relevant tables
+            col_result = await _eq(
+                "SELECT table_name, column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = ANY($1) "
+                "AND data_type IN ('character varying', 'text') "
+                "ORDER BY table_name, ordinal_position",
+                [tables[:3]],
+            )
             samples = []
-            for table in tables[:3]:  # limit to avoid too many queries
-                for col_type in ["name", "status", "type"]:
-                    try:
-                        vals = await value_samples(table, col_type, limit=5)
-                        if vals:
-                            samples.append(f"  {table}.{col_type}: {', '.join(vals)}")
-                    except Exception:
-                        continue
+            for row in col_result["rows"][:10]:  # cap total columns sampled
+                tbl, col = row[0], row[1]
+                try:
+                    vals = await value_samples(tbl, col, limit=5)
+                    if vals:
+                        samples.append(f"  {tbl}.{col}: {', '.join(vals)}")
+                except Exception:
+                    continue
             if samples:
                 sample_info = "Sample values:\n" + "\n".join(samples)
         except Exception:

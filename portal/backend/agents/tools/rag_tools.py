@@ -11,11 +11,12 @@ from openai import AsyncOpenAI
 from config.settings import LLM_BASE_URL, LLM_API_KEY, EMBEDDING_MODEL
 from db.database import get_pool
 
+_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+
 
 async def get_embedding(text: str) -> list[float]:
     """Generate an embedding vector for the given text."""
-    client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
-    response = await client.embeddings.create(
+    response = await _client.embeddings.create(
         model=EMBEDDING_MODEL,
         input=text,
     )

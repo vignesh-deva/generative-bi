@@ -11,8 +11,11 @@ SSE event format:
 """
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -87,7 +90,8 @@ async def chat(req: ChatRequest):
                 response_text = "I wasn't able to generate a response for that query."
 
         except Exception as e:
-            response_text = f"An error occurred while processing your query: {str(e)}"
+            logger.exception("Pipeline error for session %s", session_id)
+            response_text = "An error occurred while processing your query. Please try again."
             sql_query = None
             yield sse_event({"type": "error", "content": response_text})
 
