@@ -4,7 +4,7 @@
 
 ## Overview
 
-This is the main backend service. It exposes REST + SSE endpoints consumed by the Next.js frontend and orchestrates the NL → SQL → Insight agent pipeline using **LangGraph**.
+This is the main backend service. It exposes REST + SSE endpoints consumed by the Next.js frontend and orchestrates the NL-to-SQL-to-Insight agent pipeline using **LangGraph**.
 
 Runs as a Docker container (port 8000) or standalone via `uvicorn`.
 
@@ -13,34 +13,78 @@ Runs as a Docker container (port 8000) or standalone via `uvicorn`.
 ```
 portal/backend/
 ├── main.py              # FastAPI app entry point, lifespan (pool init + index creation)
-├── agents/              # Individual agent modules (classifier, guardrails, RAG, SQL, etc.)
-├── graph/               # LangGraph workflow definition (pipeline.py)
-├── api/                 # FastAPI route handlers (chat, history, requests)
-├── db/                  # PostgreSQL + MongoDB connection management, seeder, verifier
-├── rag/                 # pgvector store and few-shot document corpus
-├── utils/               # SSE streaming helpers
-├── config/              # Environment-driven settings
-├── requirements.txt     # Python dependencies
-└── .env.example         # Environment variable template
+├── agents/              # Agent modules
+│   ├── guardrails.py    # [small] LLM-based safety check (no tools)
+│   ├── classifier.py    # [small] Intent classification with chat history (no tools)
+│   ├── response_agent.py # [small] Handles non-analytics intents (blocked/ambiguous/chitchat/history)
+│   ├── rag_agent.py     # RAG few-shot retrieval via pgvector cosine similarity
+│   ├── schema_agent.py  # [small + tool] Schema Linker — identifies relevant tables
+│   ├── semantic_layer.py # Static knowledge base — metrics, join paths, business rules
+│   ├── sql_agent.py     # [large + sub-agents] SQL generation (Decomposer + adapt/single/multi)
+│   ├── validation_agent.py # Dry-run, Error Classifier, Correction Agent, Logic Check
+│   ├── insight_agent.py # [large] NL business insight generation
+│   └── tools/           # Tool functions shared across agents
+│       ├── schema_tools.py  # list_tables(), pull_schema(), value_samples()
+│       ├── rag_tools.py     # get_embedding(), retrieve_fewshots()
+│       ├── semantic_tools.py # get_semantic_context()
+│       ├── sql_tools.py     # dry_run_explain(), run_query()
+│       └── history_tools.py # fetch_chat_history()
+├── graph/
+│   └── pipeline.py      # LangGraph v2 pipeline (4 stages, fan-out, self-repair)
+├── api/                 # FastAPI route handlers
+│   ├── chat.py          # POST /api/chat — SSE streaming via pipeline.ainvoke()
+│   ├── dashboard.py     # GET /api/dashboard/* — KPI + chart data
+│   ├── history.py       # GET /api/history/sessions + messages
+│   └── requests.py      # POST/GET /api/requests
+├── db/                  # Database connections, seeder, verifier
+│   ├── database.py      # PostgreSQL pool (asyncpg), read-only execute_query()
+│   ├── mongo.py         # MongoDB collections (motor)
+│   ├── seed.py          # Seed FMCG data (60 products, 150 retailers, 178k sales)
+│   └── seed_fewshots.py # Seed 15 NL-to-SQL few-shot examples (with embeddings)
+├── config/
+│   └── settings.py      # LLM_MODEL, LLM_MODEL_SMALL, EMBEDDING_MODEL, DB URIs
+├── requirements.txt
+└── .env.example
 ```
 
-Each subfolder has its own README with detailed documentation.
+## Agent Pipeline (v2)
 
-## Key Responsibilities
+The pipeline is a 4-stage LangGraph workflow with 12 agents:
 
-- **Chat endpoint** — receives NL questions, runs the LangGraph agent pipeline, streams SSE events back to the frontend
-- **Agent pipeline** — Classifier, Guardrails, and RAG run in parallel (fan-out), then Schema Agent → SQL Agent ↔ Validation Agent → PostgreSQL execution → Insight Agent
-- **Chat history** — persisted in MongoDB (sessions, messages, feedback)
-- **FMCG data** — queried via PostgreSQL (read-only transactions for LLM-generated SQL)
-- **Dashboard requests** — business users submit requests for new dashboards/reports, tracked with comments
+```
+Query → Fetch Chat History (MongoDB)
+      → [Guardrails | Classifier | RAG] (parallel fan-out)
+      → Router (fan-in)
+          ├── non-analytics → Response Agent → SSE → END
+          └── analytics → Schema Linker → SQL Agent → Dry-Run
+              ├── passes → Execute → Logic Check → Insight Agent → SSE → END
+              └── fails  → Error Classifier → Correction Agent → retry (max 3)
+```
+
+### Agent Inventory
+
+| Agent | Model | Tools | Purpose |
+|-------|-------|-------|---------|
+| Guardrails | small | none | LLM-based safety check (prompt injection, SQL injection, PII) |
+| Classifier | small | none | Intent: analytics / chitchat / history / ambiguous |
+| RAG Agent | — | pgvector | Few-shot NL-to-SQL retrieval by cosine similarity |
+| Response Agent | small | fetch_chat_history | Handles blocked, ambiguous, chitchat, history |
+| Schema Linker | small | list_tables, pull_schema | Selects relevant tables for the query |
+| Semantic Layer | — | — | Static knowledge base: metrics, join paths, business rules |
+| SQL Agent | large | decompose, generate | Decomposer sub-agent + adapt/single/multi strategies |
+| Dry-Run Validator | — | EXPLAIN | PostgreSQL EXPLAIN validation (no LLM cost) |
+| Error Classifier | small | none | Categorizes: syntax / schema / logic / runtime |
+| Correction Agent | large | pull_schema, value_samples, dry_run_explain | Targeted SQL fix |
+| Logic Check | small | none | Verifies query results answer the question |
+| Insight Agent | large | none | Generates NL business insight from results |
 
 ## Databases
 
 | Store | Engine | What It Stores |
 |-------|--------|----------------|
-| FMCG data | PostgreSQL | Products, orders, sales, inventory — the NL → SQL query target |
+| FMCG data | PostgreSQL | Products, orders, sales, inventory — the NL-to-SQL query target |
 | Chat history | MongoDB | Sessions, messages, user feedback (thumbs up/down) |
-| RAG examples | pgvector | NL → SQL few-shot pairs, curated via Operations Center |
+| RAG examples | pgvector (PostgreSQL extension) | NL-to-SQL few-shot pairs, curated via Operations Center |
 
 ## Running
 
@@ -56,27 +100,35 @@ cd portal/backend
 python -m venv venv && source venv/bin/activate  # or venv\Scripts\activate on Windows
 pip install -r requirements.txt
 cp .env.example .env
-# Fill in LLM endpoint, POSTGRES_URI, and MONGODB_URI in .env
+# Fill in LLM endpoint, EMBEDDING_MODEL, POSTGRES_URI, and MONGODB_URI in .env
 uvicorn main:app --reload --port 8000
 ```
 
 ### Seed the database
 ```bash
 cd portal/backend
-python -m db.seed    # populate mock FMCG data
-python -m db.verify  # verify 33 checks pass
+python -m db.seed           # populate mock FMCG data
+python -m db.verify         # verify 33 checks pass
+python -m db.seed_fewshots  # seed 15 NL-to-SQL few-shot examples
 ```
 
-## TODO
+## Configuration
 
-- [ ] Agent files are currently empty scaffolds — LangGraph pipeline implementation pending
-- [ ] `graph/pipeline.py` needs to be created
-- [ ] SSE event schema needs to be finalised and shared with frontend TypeScript types
-- [ ] Auth/session management not yet defined
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_MODEL` | `llama3` | Large model for SQL generation, correction, insights |
+| `LLM_MODEL_SMALL` | same as LLM_MODEL | Small model for classification, guardrails, routing |
+| `LLM_BASE_URL` | `http://localhost:11434/v1` | Any OpenAI-compatible API endpoint |
+| `LLM_API_KEY` | `ollama` | API key for the LLM endpoint |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | Model for RAG embedding generation |
+| `MAX_SQL_RETRIES` | `3` | Max self-repair iterations in the validation loop |
+| `POSTGRES_URI` | `postgresql://genbi:genbi@localhost:5432/genbi` | PostgreSQL connection |
+| `MONGODB_URI` | `mongodb://localhost:27017` | MongoDB connection |
 
 ## Changelog
 
 | Date | Change |
 |------|--------|
+| 2026-03-25 | v2 pipeline: 12 agents, 4 stages, semantic layer, schema linker, response agent, self-repair loop |
 | 2026-03-18 | Cleared stale TODOs; added seed/verify commands; updated databases table |
 | 2026-03-15 | Initial README — LangGraph, MongoDB, Docker architecture |
