@@ -386,23 +386,34 @@
 
 <div class="pipeline">
 
+  <!-- ════════ STEP 0: Chat History Fetch ════════ -->
+  <div class="agents-row">
+    <div class="agent db" style="max-width:320px">
+      <div class="agent-name">Fetch Chat History</div>
+      <div class="agent-sub">MongoDB</div>
+      <div class="tools-row"><span class="tool-pill">fetch_chat_history</span></div>
+      <div style="font-size:10px;color:#888;margin-top:4px">Last N messages from session &rarr; injected into Classifier &amp; SQL Agent</div>
+    </div>
+  </div>
+
+  <div class="arrow">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
   <!-- ════════ STAGE 1 ════════ -->
   <div class="stage">
-    <div class="stage-label">Stage 1: Pre-processing <span>(4-way parallel)</span></div>
+    <div class="stage-label">Stage 1: Pre-processing <span>(4-way parallel fan-out)</span></div>
     <div class="agents-row">
       <div class="agent small">
         <div class="agent-name">Guardrails Agent</div>
-        <div class="agent-sub">small model</div>
-        <div class="tools-row">
-          <span class="tool-pill">LLM safety check</span>
-        </div>
+        <div class="agent-sub">small model &bull; no tools</div>
       </div>
       <div class="agent small">
         <div class="agent-name">Classifier + Disambiguator</div>
-        <div class="agent-sub">small model</div>
-        <div class="tools-row">
-          <span class="tool-pill">intent + ambiguity</span>
-        </div>
+        <div class="agent-sub">small model &bull; no tools</div>
+        <div style="font-size:10px;color:#6ee7a0;margin-top:6px">intents: chitchat &bull; history &bull; analytics</div>
+        <div style="font-size:10px;color:#888;margin-top:2px">receives recent chat history for follow-up resolution</div>
       </div>
       <div class="agent small">
         <div class="agent-name">RAG Agent</div>
@@ -427,17 +438,55 @@
     <div class="arrow-label">fan-in &amp; route</div>
   </div>
 
-  <!-- Routing -->
-  <div class="route-box">
-    <span class="route-option exit">blocked &rarr; refuse</span>
-    <span class="route-option exit">ambiguous &rarr; clarify user</span>
-    <span class="route-option exit">chitchat / OOS &rarr; direct reply</span>
-    <span class="route-option pass">analytics + clear &rarr; continue &darr;</span>
-  </div>
+  <!-- ════════ ROUTING SPLIT ════════ -->
+  <div style="display:flex;width:100%;gap:20px;align-items:flex-start">
 
-  <div class="arrow">
-    <div class="arrow-line"></div>
-    <div class="arrow-head"></div>
+    <!-- ── Main flow (analytics only) ── -->
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:10px;align-self:stretch">
+      <div class="route-box" style="margin:0">
+        <span class="route-option pass" style="font-size:12px;padding:8px 20px;font-weight:600">analytics &rarr; continue &darr;</span>
+      </div>
+      <div style="width:2px;flex:1;background:#555570"></div>
+      <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid #555570"></div>
+    </div>
+
+    <!-- ── Separator line ── -->
+    <div style="width:2px;background:linear-gradient(to bottom,#555570,transparent);min-height:240px;align-self:stretch;border-radius:2px"></div>
+
+    <!-- ── Exit branch (everything else → Response Agent) ── -->
+    <div style="flex:0 0 320px;display:flex;flex-direction:column;align-items:center;gap:10px">
+      <div class="route-box" style="margin:0;flex-direction:column;align-items:center">
+        <span class="route-option exit">blocked &rarr; refuse</span>
+        <span class="route-option exit" style="margin-top:4px">ambiguous &rarr; clarify</span>
+        <span class="route-option exit" style="margin-top:4px">chitchat &rarr; direct reply</span>
+        <span class="route-option exit" style="margin-top:4px">history &rarr; summarize / answer</span>
+      </div>
+      <div class="arrow">
+        <div class="arrow-line" style="height:14px"></div>
+        <div class="arrow-head"></div>
+      </div>
+      <div style="border:2px solid #553355;background:#2a2235;border-radius:14px;padding:16px 18px 14px;width:100%">
+        <div style="font-size:12px;font-weight:700;color:#ccc;text-align:center;margin-bottom:10px">Exit Path <span style="color:#8888aa;font-weight:400;font-size:11px">(non-analytics)</span></div>
+        <div class="agent small" style="max-width:none">
+          <div class="agent-name">Response Agent</div>
+          <div class="agent-sub">small model</div>
+          <div class="tools-row"><span class="tool-pill">fetch_chat_history</span></div>
+          <div style="font-size:10px;color:#888;margin-top:6px">
+            Blocked: polite refusal<br>
+            Ambiguous: asks clarifying question<br>
+            Chitchat: conversational reply<br>
+            History: fetches chat from MongoDB, summarizes or answers
+          </div>
+        </div>
+        <div class="arrow" style="margin-top:10px">
+          <div class="arrow-line" style="height:12px"></div>
+          <div class="arrow-head"></div>
+        </div>
+        <div style="text-align:center;margin-top:4px">
+          <span class="route-option pass" style="font-size:11px;font-weight:600">SSE stream &rarr; Frontend</span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ════════ STAGE 1B ════════ -->
@@ -468,6 +517,9 @@
   <!-- ════════ STAGE 2 ════════ -->
   <div class="stage">
     <div class="stage-label">Stage 2: SQL Generation</div>
+    <div style="text-align:center;font-size:11px;color:#6dd;margin-bottom:12px">
+      Receives: linked schema + semantic context + <strong>RAG few-shot examples</strong> + chat history context
+    </div>
     <div class="agents-row">
       <div class="agent large" style="max-width:280px">
         <div class="agent-name">SQL Agent</div>
@@ -476,17 +528,23 @@
           <span class="tool-pill">decompose</span>
           <span class="tool-pill">generate_subquery</span>
         </div>
+        <div style="font-size:10px;color:#888;margin-top:6px">
+          Few-shot examples from RAG injected into prompt as exemplars
+        </div>
       </div>
     </div>
     <div class="sub-agents">
       <div class="sub-label">SQL Agent sub-agents (invoked as tools)</div>
       <div class="agents-row">
-        <div class="agent small" style="max-width:200px">
+        <div class="agent small" style="max-width:240px">
           <div class="agent-name">Decomposer</div>
           <div class="agent-sub">small model</div>
           <div class="tools-row">
             <span class="tool-pill">single-step?</span>
             <span class="tool-pill">sub-query plan</span>
+          </div>
+          <div style="font-size:10px;color:#6ee7a0;margin-top:6px">
+            If RAG similarity &ge; 0.85 &rarr; skip decomposition, adapt the matched query directly
           </div>
         </div>
         <div class="agent large" style="max-width:200px">
@@ -541,19 +599,19 @@
         <span style="font-size:11px;color:#f08080;font-weight:600">&#10007; fails</span>
         <div class="agent small">
           <div class="agent-name">Error Classifier Agent</div>
-          <div class="agent-sub">small model</div>
-          <div class="tools-row">
-            <span class="tool-pill">syntax</span>
-            <span class="tool-pill">schema</span>
-            <span class="tool-pill">logic</span>
-            <span class="tool-pill">runtime</span>
-          </div>
+          <div class="agent-sub">small model &bull; no tools</div>
+          <div style="font-size:10px;color:#888;margin-top:4px">categorizes: syntax &bull; schema &bull; logic &bull; runtime</div>
         </div>
         <div class="arrow"><div class="arrow-line" style="height:12px"></div><div class="arrow-head"></div></div>
         <div class="agent large">
           <div class="agent-name">Correction Agent</div>
           <div class="agent-sub">large model</div>
-          <div class="tools-row"><span class="tool-pill">targeted SQL fix</span></div>
+          <div class="tools-row">
+            <span class="tool-pill">pull_schema</span>
+            <span class="tool-pill">value_samples</span>
+            <span class="tool-pill">dry_run_explain</span>
+          </div>
+          <div style="font-size:10px;color:#888;margin-top:4px">same tools as Stage 1 &mdash; can re-check schema, sample values, and validate fixes</div>
         </div>
         <div style="font-size:10px;color:#f0c070;margin-top:4px">&#8635; retry &rarr; back to Dry-Run</div>
       </div>
@@ -582,7 +640,6 @@
         <div class="agent-sub">large model</div>
         <div class="tools-row">
           <span class="tool-pill">NL business insight</span>
-          <span class="tool-pill">Indian formatting</span>
           <span class="tool-pill">cite assumptions</span>
         </div>
       </div>
@@ -618,13 +675,19 @@
       <td>Guardrails</td>
       <td><span class="model-small">small</span></td>
       <td>LLM-based safety — prompt injection, SQL injection in NL, system prompt extraction</td>
-      <td><i>extensible: blocklist API, moderation service</i></td>
+      <td>none</td>
     </tr>
     <tr>
       <td>Classifier + Disambiguator</td>
       <td><span class="model-small">small</span></td>
-      <td>Intent routing + ambiguity detection. Streams clarification question if ambiguous.</td>
-      <td><i>extensible: conversation context lookup</i></td>
+      <td>Intent routing (chitchat / history / analytics) + ambiguity detection. Receives recent chat history for follow-up resolution. Streams clarification question if ambiguous.</td>
+      <td>none</td>
+    </tr>
+    <tr>
+      <td>Response Agent</td>
+      <td><span class="model-small">small</span></td>
+      <td>Handles all non-analytics intents. Blocked: polite refusal. Ambiguous: asks clarifying question. Chitchat: conversational reply. History: fetches recent chat from MongoDB, summarizes or answers.</td>
+      <td><code>fetch_chat_history</code> — MongoDB session/message lookup</td>
     </tr>
     <tr>
       <td>RAG Agent</td>
@@ -647,13 +710,13 @@
     <tr>
       <td>SQL Agent</td>
       <td><span class="model-large">large</span></td>
-      <td>Core SQL generation with CoT reasoning</td>
+      <td>Core SQL generation with CoT reasoning. RAG few-shot examples injected into prompt as exemplars.</td>
       <td><code>decompose</code>, <code>generate_subquery</code></td>
     </tr>
     <tr>
       <td>&emsp;Decomposer <i>(sub-agent)</i></td>
       <td><span class="model-small">small</span></td>
-      <td>Decide single-step vs multi-step, plan sub-queries</td>
+      <td>Decide single-step vs multi-step, plan sub-queries. If RAG similarity &ge; 0.85, skips decomposition and adapts the matched query directly.</td>
       <td>—</td>
     </tr>
     <tr>
@@ -666,13 +729,13 @@
       <td>Error Classifier</td>
       <td><span class="model-small">small</span></td>
       <td>Categorize errors: syntax, schema, logic, runtime</td>
-      <td>—</td>
+      <td>none</td>
     </tr>
     <tr>
       <td>Correction Agent</td>
       <td><span class="model-large">large</span></td>
-      <td>Targeted SQL fix based on error type + schema context</td>
-      <td>—</td>
+      <td>Targeted SQL fix based on error type. Has full access to schema and sample values for informed corrections.</td>
+      <td><code>pull_schema</code>, <code>value_samples</code>, <code>dry_run_explain</code></td>
     </tr>
     <tr>
       <td>Logic Check</td>
@@ -683,7 +746,7 @@
     <tr>
       <td>Insight Agent</td>
       <td><span class="model-large">large</span></td>
-      <td>NL business insight with Indian formatting, cites numbers + assumptions</td>
+      <td>NL business insight — cites numbers, explains reasoning, flags assumptions</td>
       <td>—</td>
     </tr>
   </table>
@@ -727,61 +790,95 @@
   <h2>Parallelism &amp; Timing</h2>
   <p style="font-size:13px;color:#888;margin-bottom:16px">Happy path — no retries. Parallel stages shown at same vertical position.</p>
 
+  <h3>Analytics Path (happy path &mdash; no retries)</h3>
   <div class="timing">
     <div class="timing-row">
+      <div class="timing-label" style="color:#666">Fetch chat history <span style="color:#c89ef2">[MongoDB]</span></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:0%;width:3%"></div></div>
+    </div>
+    <div class="timing-row">
       <div class="timing-label">Guardrails <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:0%;width:10%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Classifier <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:0%;width:10%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">RAG Agent <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:0%;width:10%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Schema Linker <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:0%;width:10%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label" style="color:#666">Fan-in + route</div>
-      <div class="timing-track"><div class="timing-bar ct" style="left:10%;width:3%"></div></div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:13%;width:3%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Semantic Layer <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:13%;width:8%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:16%;width:8%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">SQL Agent <span class="model-large">[large]</span></div>
-      <div class="timing-track"><div class="timing-bar lg" style="left:21%;width:20%"></div></div>
+      <div class="timing-track"><div class="timing-bar lg" style="left:24%;width:20%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">EXPLAIN dry-run <span style="color:#c89ef2">[DB]</span></div>
-      <div class="timing-track"><div class="timing-bar dv" style="left:41%;width:5%"></div></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:44%;width:5%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Execute query <span style="color:#c89ef2">[DB]</span></div>
-      <div class="timing-track"><div class="timing-bar dv" style="left:46%;width:8%"></div></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:49%;width:8%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Logic Check <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:54%;width:8%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:57%;width:8%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Insight Agent <span class="model-large">[large]</span></div>
-      <div class="timing-track"><div class="timing-bar lg" style="left:62%;width:18%"></div></div>
+      <div class="timing-track"><div class="timing-bar lg" style="left:65%;width:18%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label" style="color:#666">SSE stream</div>
-      <div class="timing-track"><div class="timing-bar ct" style="left:80%;width:8%"></div></div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:83%;width:8%"></div></div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:24px">Non-Analytics Path (blocked / ambiguous / chitchat / history)</h3>
+  <div class="timing">
+    <div class="timing-row">
+      <div class="timing-label" style="color:#666">Fetch chat history <span style="color:#c89ef2">[MongoDB]</span></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:0%;width:3%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Guardrails <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Classifier <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label" style="color:#666">Route &rarr; exit</div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:13%;width:3%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Response Agent <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:16%;width:12%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label" style="color:#666">SSE stream</div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:28%;width:8%"></div></div>
     </div>
   </div>
 
   <div style="display:flex;justify-content:space-between;margin-top:8px;padding:0 220px 0 0">
     <div></div>
     <div style="font-size:11px;color:#666">
-      LLM calls: <span class="model-small">7 small</span> + <span class="model-large">2 large</span> = 9 total (happy path) &nbsp;|&nbsp; Worst case (3 retries): 15
+      Analytics: <span class="model-small">7 small</span> + <span class="model-large">2 large</span> = 9 LLM calls (happy path) &nbsp;|&nbsp; Worst case (3 retries): 15<br>
+      Non-analytics: <span class="model-small">3 small</span> = 3 LLM calls
     </div>
   </div>
 
@@ -829,21 +926,23 @@
   <div class="config-block" style="line-height:1.6">
     portal/backend/<br>
     ├── agents/<br>
-    │&emsp;&emsp;├── guardrails.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [small] LLM safety check</span><br>
-    │&emsp;&emsp;├── classifier.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [small] intent + disambiguation</span><br>
+    │&emsp;&emsp;├── guardrails.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [small] LLM safety check — no tools</span><br>
+    │&emsp;&emsp;├── classifier.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [small] intent (chitchat/history/analytics) + disambiguation — no tools</span><br>
+    │&emsp;&emsp;├── response_agent.py &emsp;&emsp;&emsp;<span class="comment"># [small + tool] direct reply for chitchat + history intents</span><br>
     │&emsp;&emsp;├── rag_agent.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [small + tool] few-shot retrieval</span><br>
     │&emsp;&emsp;├── schema_linker.py &emsp;&emsp;&emsp;<span class="comment"># [small + tool] table selection</span><br>
     │&emsp;&emsp;├── semantic_layer.py &emsp;&emsp;&emsp;<span class="comment"># [small + tool] metric defs + rules</span><br>
-    │&emsp;&emsp;├── sql_agent.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [large + sub-agents] SQL generation</span><br>
-    │&emsp;&emsp;├── error_classifier.py &emsp;&emsp;<span class="comment"># [small] error taxonomy</span><br>
-    │&emsp;&emsp;├── correction_agent.py &emsp;&emsp;<span class="comment"># [large] targeted SQL fixes</span><br>
+    │&emsp;&emsp;├── sql_agent.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [large + sub-agents] SQL generation (receives RAG fewshots)</span><br>
+    │&emsp;&emsp;├── error_classifier.py &emsp;&emsp;<span class="comment"># [small] error taxonomy — no tools</span><br>
+    │&emsp;&emsp;├── correction_agent.py &emsp;&emsp;<span class="comment"># [large + tools] targeted SQL fixes with schema access</span><br>
     │&emsp;&emsp;├── logic_check.py &emsp;&emsp;&emsp;&emsp;<span class="comment"># [small] post-execution check</span><br>
-    │&emsp;&emsp;├── insight_agent.py &emsp;&emsp;&emsp;<span class="comment"># [large] NL response</span><br>
+    │&emsp;&emsp;├── insight_agent.py &emsp;&emsp;&emsp;<span class="comment"># [large] NL business insight</span><br>
     │&emsp;&emsp;└── tools/<br>
-    │&emsp;&emsp;&emsp;&emsp;&emsp;├── schema_tools.py &emsp;<span class="comment"># pull_schema(), get_table_summaries()</span><br>
+    │&emsp;&emsp;&emsp;&emsp;&emsp;├── schema_tools.py &emsp;<span class="comment"># pull_schema(), get_table_summaries(), value_samples()</span><br>
     │&emsp;&emsp;&emsp;&emsp;&emsp;├── rag_tools.py &emsp;&emsp;&emsp;<span class="comment"># search_fewshots()</span><br>
     │&emsp;&emsp;&emsp;&emsp;&emsp;├── semantic_tools.py <span class="comment"># lookup_metrics()</span><br>
-    │&emsp;&emsp;&emsp;&emsp;&emsp;└── sql_tools.py &emsp;&emsp;&emsp;<span class="comment"># dry_run_explain(), execute_query()</span><br>
+    │&emsp;&emsp;&emsp;&emsp;&emsp;├── sql_tools.py &emsp;&emsp;&emsp;<span class="comment"># dry_run_explain(), execute_query()</span><br>
+    │&emsp;&emsp;&emsp;&emsp;&emsp;└── history_tools.py &emsp;<span class="comment"># fetch_chat_history() — MongoDB session/message lookup</span><br>
     ├── graph/<br>
     │&emsp;&emsp;└── pipeline.py &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># LangGraph orchestration</span><br>
     └── config/<br>
