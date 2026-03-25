@@ -5,6 +5,7 @@ the agent pipeline response as Server-Sent Events (SSE).
 SSE event format:
   data: {"type": "token", "content": "..."}
   data: {"type": "sql", "content": "SELECT ..."}
+  data: {"type": "status", "content": "classifying..."}
   data: {"type": "error", "content": "..."}
   data: [DONE]
 """
@@ -18,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from db.mongo import chat_sessions, chat_messages
+from graph.pipeline import pipeline
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -59,24 +61,43 @@ async def chat(req: ChatRequest):
     )
 
     async def event_stream():
-        # TODO: Replace with real LangGraph pipeline invocation
-        # For now, return a placeholder response so the UI is testable
-        placeholder = (
-            "The agent pipeline is not wired up yet. "
-            "This is a placeholder response to confirm the chat UI and SSE streaming work end-to-end. "
-            "Once the LangGraph pipeline is built, this endpoint will route your query through: "
-            "Classifier -> Guardrails -> RAG -> Schema Agent -> SQL Agent -> Validation -> Execution -> Insight Agent."
-        )
+        yield sse_event({"type": "status", "content": "Processing your query..."})
 
-        for word in placeholder.split(" "):
-            yield sse_event({"type": "token", "content": word + " "})
+        try:
+            result = await pipeline.ainvoke(
+                {"query": req.query, "session_id": session_id}
+            )
 
+            response_text = result.get("response", "")
+            sql_query = result.get("sql_query")
+
+            if sql_query:
+                yield sse_event({"type": "sql", "content": sql_query})
+
+            if response_text:
+                # Stream the response word by word for a typing effect
+                words = response_text.split(" ")
+                for word in words:
+                    yield sse_event({"type": "token", "content": word + " "})
+            else:
+                yield sse_event({
+                    "type": "token",
+                    "content": "I wasn't able to generate a response for that query. Please try rephrasing.",
+                })
+                response_text = "I wasn't able to generate a response for that query."
+
+        except Exception as e:
+            response_text = f"An error occurred while processing your query: {str(e)}"
+            sql_query = None
+            yield sse_event({"type": "error", "content": response_text})
+
+        # Persist assistant response
         await chat_messages().insert_one(
             {
                 "session_id": session_id,
                 "role": "assistant",
-                "content": placeholder,
-                "sql_query": None,
+                "content": response_text,
+                "sql_query": sql_query,
                 "feedback": None,
                 "created_at": datetime.now(timezone.utc),
             }

@@ -1,5 +1,5 @@
 """
-Insight agent — converts query results into a plain-English business insight.
+Insight Agent — converts query results into a plain-English business insight.
 """
 
 from openai import AsyncOpenAI
@@ -8,16 +8,16 @@ from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
-SYSTEM_PROMPT = """You are a business intelligence analyst for an FMCG (Fast-Moving Consumer Goods) company in India.
+SYSTEM_PROMPT = """You are a business intelligence analyst for an FMCG (Fast-Moving Consumer Goods) company.
 Given a natural language question, the SQL query used, and the query results, provide a clear, concise business insight.
 
 Rules:
 - Lead with the key finding, then supporting details
-- Use Indian number formatting (crores, lakhs) for large amounts
 - Keep it under 3-4 sentences for simple queries, up to a paragraph for complex ones
 - If the results are empty, say so clearly and suggest why
 - Don't include the SQL in your response
-- Be specific — cite actual numbers from the results"""
+- Be specific — cite actual numbers from the results
+- Use standard number formatting (thousands, millions, etc.)"""
 
 
 async def generate_insight(

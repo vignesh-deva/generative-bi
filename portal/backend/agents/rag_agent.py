@@ -1,32 +1,18 @@
 """
-RAG agent — retrieves few-shot NL-to-SQL examples from the pgvector store.
+RAG agent — retrieves few-shot NL-to-SQL examples via pgvector cosine similarity.
 
-Returns a list of {question, sql} dicts for use as few-shot context.
-
-NOTE: Full vector search requires an embedding model. For now, this falls
-back to returning recent examples until the embedding model is configured.
+Returns a list of {question, sql, similarity} dicts for use as few-shot context
+in the SQL Agent's prompt.
 """
 
-from db.database import execute_query
+from agents.tools.rag_tools import retrieve_fewshots
 
 
-async def retrieve_fewshots(query: str, limit: int = 5) -> list[dict]:
-    # TODO: Once embedding model is chosen, generate query embedding
-    # and use vector similarity search:
-    #   SELECT question, sql_query
-    #   FROM fewshot_examples
-    #   ORDER BY embedding <=> $1::vector
-    #   LIMIT $2
+async def retrieve_examples(query: str, limit: int = 5) -> list[dict]:
+    """Retrieve few-shot examples by semantic similarity.
 
-    try:
-        result = await execute_query(
-            "SELECT question, sql_query FROM fewshot_examples "
-            "ORDER BY created_at DESC LIMIT $1",
-            [limit],
-        )
-        return [
-            {"question": row[0], "sql": row[1]}
-            for row in result["rows"]
-        ]
-    except Exception:
-        return []
+    Returns list of {question, sql, similarity} ordered by similarity desc.
+    The top similarity score is used by the Decomposer to decide whether
+    to skip decomposition (>= 0.85 threshold).
+    """
+    return await retrieve_fewshots(query, limit=limit)
