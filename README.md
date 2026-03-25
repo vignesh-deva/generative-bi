@@ -49,7 +49,7 @@ Stage 3: Validation + Self-repair (max 3 iterations)
 └── Logic Check Agent [small]          Does the SQL answer the question?
 
 Stage 4: Response Synthesis
-└── Insight Agent [large]              NL business insight, Indian formatting
+└── Insight Agent [large]              NL business insight
          │
          ▼
     SSE stream → Frontend
@@ -91,34 +91,35 @@ generative-bi/
 │   └── backend/                         # FastAPI — agent pipeline & APIs
 │       ├── main.py                      # App entry, router registration, lifespan
 │       ├── agents/                      # Agent modules (LLM + tools)
-│       │   ├── guardrails.py            # [small] Safety check
-│       │   ├── classifier.py            # [small] Intent + disambiguation
-│       │   ├── rag_agent.py             # [small + tool] Few-shot retrieval
-│       │   ├── schema_linker.py         # [small + tool] Table selection
-│       │   ├── semantic_layer.py        # [small + tool] Metric defs + rules
-│       │   ├── sql_agent.py             # [large + sub-agents] SQL generation
-│       │   ├── error_classifier.py      # [small] Error taxonomy
-│       │   ├── correction_agent.py      # [large] Targeted SQL fixes
-│       │   ├── logic_check.py           # [small] Post-execution verification
-│       │   ├── insight_agent.py         # [large] NL response generation
+│       │   ├── guardrails.py            # [small] LLM-based safety check
+│       │   ├── classifier.py            # [small] Intent classification (analytics/chitchat/history/ambiguous)
+│       │   ├── response_agent.py        # [small] Handles non-analytics intents (chitchat, history, blocked, ambiguous)
+│       │   ├── rag_agent.py             # Few-shot retrieval via pgvector cosine similarity
+│       │   ├── schema_agent.py          # [small + tool] Schema Linker — selects relevant tables only
+│       │   ├── semantic_layer.py        # Static knowledge base — metrics, join paths, business rules
+│       │   ├── sql_agent.py             # [large + sub-agents] SQL generation (Decomposer + adapt/single/multi)
+│       │   ├── validation_agent.py      # Dry-run, Error Classifier, Correction Agent, Logic Check
+│       │   ├── insight_agent.py         # [large] NL business insight generation
 │       │   └── tools/                   # Tool functions for agents
-│       │       ├── schema_tools.py      # pull_schema(), get_table_summaries()
-│       │       ├── rag_tools.py         # search_fewshots()
-│       │       ├── semantic_tools.py    # lookup_metrics()
-│       │       └── sql_tools.py         # dry_run_explain(), execute_query()
+│       │       ├── schema_tools.py      # list_tables(), pull_schema(), value_samples()
+│       │       ├── rag_tools.py         # get_embedding(), retrieve_fewshots()
+│       │       ├── semantic_tools.py    # get_semantic_context()
+│       │       ├── sql_tools.py         # dry_run_explain(), run_query()
+│       │       └── history_tools.py     # fetch_chat_history()
 │       ├── graph/
-│       │   └── pipeline.py              # LangGraph workflow orchestration
+│       │   └── pipeline.py              # LangGraph v2 workflow (4 stages, fan-out, self-repair loop)
 │       ├── api/
-│       │   ├── chat.py                  # POST /api/chat — SSE streaming endpoint
+│       │   ├── chat.py                  # POST /api/chat — SSE streaming via pipeline.ainvoke()
 │       │   ├── dashboard.py             # GET /api/dashboard/* — KPI + chart data
 │       │   ├── requests.py              # POST/GET /api/requests
 │       │   └── history.py               # GET /api/history/sessions
 │       ├── db/
 │       │   ├── database.py              # PostgreSQL pool (asyncpg), read-only queries
 │       │   ├── mongo.py                 # MongoDB collections (motor)
-│       │   └── seed.py                  # Seed script — 60 products, 150 retailers, 178k sales
+│       │   ├── seed.py                  # Seed script — 60 products, 150 retailers, 178k sales
+│       │   └── seed_fewshots.py         # Seed 15 NL-to-SQL few-shot examples (with embeddings)
 │       └── config/
-│           └── settings.py              # LLM_MODEL, LLM_MODEL_SMALL, DB URIs
+│           └── settings.py              # LLM_MODEL, LLM_MODEL_SMALL, EMBEDDING_MODEL, DB URIs
 │
 ├── ops/                                 # Operations center application
 │   ├── frontend/                        # Next.js + Tailwind (port 3001)
@@ -272,11 +273,14 @@ All model and database settings are configured via environment variables (`.env`
 ```env
 # Large model — SQL generation, correction, insights
 LLM_MODEL=llama3:70b
-# Small model — classification, routing, tool use
+# Small model — classification, routing, guardrails
 LLM_MODEL_SMALL=llama3:8b
 # LLM endpoint (any OpenAI-compatible API)
 LLM_BASE_URL=http://localhost:11434/v1
 LLM_API_KEY=ollama
+
+# Embedding model — used for RAG few-shot similarity search
+EMBEDDING_MODEL=text-embedding-3-small
 
 # Max SQL retry attempts in self-repair loop
 MAX_SQL_RETRIES=3

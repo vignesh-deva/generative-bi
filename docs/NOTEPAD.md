@@ -56,18 +56,31 @@ A running log of decisions, next steps, and open questions for the Generative BI
 - [x] Error taxonomy (syntax, schema, logic, runtime) + Correction Agent
 - [x] Self-repair loop increased to max 3 iterations
 
+### Completed — Pipeline Refinements (v2.1)
+- [x] Guardrails, Classifier, Error Classifier → pure LLM calls, no tools (simpler, cheaper)
+- [x] Response Agent added — handles chitchat + history intents (non-analytics exit path)
+- [x] Intents refined to: chitchat, history (summary/question on chat history), analytics
+- [x] RAG few-shot examples now explicitly wired into SQL Agent prompt as exemplars
+- [x] Decomposer checks RAG similarity score — if ≥ 0.85, skips decomposition and adapts matched query directly
+- [x] Chat history integration — fetched from MongoDB before Stage 1, injected into Classifier (follow-up resolution) and SQL Agent
+- [x] Correction Agent given tools: `pull_schema`, `value_samples`, `dry_run_explain` — can properly diagnose and fix errors
+- [x] Removed Indian formatting from Insight Agent
+- [x] Added `response_agent.py` + `history_tools.py` to file structure
+- [x] Non-analytics timing path added — 3 LLM calls (Guardrails + Classifier + Response Agent)
+
 ### Up Next — Implement v2 Pipeline
 - [ ] Add `LLM_MODEL_SMALL` + `MAX_SQL_RETRIES` to `config/settings.py`
-- [ ] Create `agents/tools/` — `schema_tools.py`, `rag_tools.py`, `semantic_tools.py`, `sql_tools.py`
+- [ ] Create `agents/tools/` — `schema_tools.py`, `rag_tools.py`, `semantic_tools.py`, `sql_tools.py`, `history_tools.py`
 - [ ] Implement Schema Linker agent (replace full Schema Agent)
 - [ ] Implement Semantic Layer agent + static knowledge base
-- [ ] Implement Classifier + Disambiguator (intent + ambiguity, SSE clarification flow)
-- [ ] Upgrade Guardrails to LLM-based
-- [ ] Implement SQL Agent with Decomposer + Sub-query Generator sub-agents
+- [ ] Implement Classifier + Disambiguator (intents: chitchat / history / analytics, no tools)
+- [ ] Implement Response Agent (direct reply for chitchat + history with MongoDB context)
+- [ ] Upgrade Guardrails to LLM-based (no tools)
+- [ ] Implement SQL Agent with Decomposer + Sub-query Generator sub-agents (RAG fewshots as exemplars)
 - [ ] Implement EXPLAIN dry-run validation (`sql_tools.dry_run_explain`)
-- [ ] Implement Error Classifier + Correction Agent
+- [ ] Implement Error Classifier (no tools) + Correction Agent (with schema/sample/explain tools)
 - [ ] Implement Logic Check agent
-- [ ] Rewrite `graph/pipeline.py` for v2 (4 stages, new nodes, updated routing)
+- [ ] Rewrite `graph/pipeline.py` for v2 (4 stages, new nodes, updated routing, chat history fetch)
 - [ ] Wire v2 pipeline into `api/chat.py` — replace placeholder with `pipeline.ainvoke()` + SSE streaming
 - [ ] Choose embedding model for RAG (e.g., `nomic-embed-text`, `text-embedding-3-small`)
 - [ ] Implement vector similarity search in RAG Agent (replace DB fallback with pgvector `<=>`)
