@@ -10,7 +10,7 @@ Receives: schema context, semantic context, RAG few-shot examples, chat history.
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_MODEL_SMALL
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
@@ -18,7 +18,7 @@ RAG_SIMILARITY_THRESHOLD = 0.85
 
 # ── Decomposer sub-agent ────────────────────────────────────────
 
-DECOMPOSER_PROMPT = """You are a query decomposer for an FMCG supply chain database.
+DECOMPOSER_PROMPT = f"""You are a query decomposer for a {DOMAIN_DESCRIPTION} database.
 Given a natural language question, decide if it can be answered with a single SQL query
 or needs to be broken into sub-steps.
 
@@ -77,7 +77,7 @@ async def _decompose(query: str, few_shot_examples: list[dict]) -> dict:
 
 # ── SQL generation prompt ────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are a PostgreSQL SQL expert for an FMCG supply chain database.
+SYSTEM_PROMPT = """You are a PostgreSQL SQL expert for a {domain} database.
 Given the database schema, semantic context, and a natural language question, generate a single SELECT query.
 
 Rules:
@@ -135,6 +135,7 @@ async def _generate_single_sql(
 ) -> str:
     """Generate a single SQL query."""
     system = SYSTEM_PROMPT.format(
+        domain=DOMAIN_DESCRIPTION,
         schema=schema_context,
         semantic=semantic_context,
         fewshots=_format_fewshots(few_shot_examples),

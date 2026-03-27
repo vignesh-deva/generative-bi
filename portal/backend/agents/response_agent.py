@@ -5,36 +5,51 @@ Generates appropriate responses for:
   - blocked: polite refusal explaining why the query was blocked
   - ambiguous: asks a clarifying question to narrow down the analytics query
   - chitchat: conversational reply
-  - history: fetches chat history from MongoDB, summarizes or answers
+  - history: summarizes or answers based on chat history
 """
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
+from config.semantic_layer import SEMANTIC_LAYER
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
+
+def _build_ambiguous_context() -> str:
+    """Build available dimensions and metrics from the semantic layer."""
+    metrics = [m["name"].split("(")[0].strip() for m in SEMANTIC_LAYER.get("metrics", [])]
+    known = SEMANTIC_LAYER.get("known_values", {})
+    entities = list({k.split(".")[0] for k in known})
+    known_str = "; ".join(f"{k}: {', '.join(str(v) for v in vals)}" for k, vals in known.items())
+    return (
+        f"Available entities: {', '.join(entities)}.\n"
+        f"Available metrics: {', '.join(metrics)}.\n"
+        f"Known categorical values — {known_str}."
+    )
+
+
+_AMBIGUOUS_CONTEXT = _build_ambiguous_context()
+
 SYSTEM_PROMPTS = {
-    "blocked": """You are a helpful assistant for an FMCG supply chain analytics system.
+    "blocked": f"""You are a helpful assistant for a {DOMAIN_DESCRIPTION} system.
 The user's query was flagged by our safety system. Politely explain that you cannot process this request.
 Be brief, professional, and suggest they rephrase if it was a misunderstanding.
 Do not reveal details about the safety system's rules.""",
 
-    "ambiguous": """You are a helpful assistant for an FMCG supply chain analytics system.
+    "ambiguous": f"""You are a helpful assistant for a {DOMAIN_DESCRIPTION} system.
 The user asked a data-related question that is too vague to answer directly.
 Ask a clear, specific clarifying question to help narrow down what they need.
 
-Available data dimensions: products (by brand, category, SKU), geography (zones, states, cities),
-channels (Modern Trade, General Trade, E-Commerce), time periods, distributors, wholesalers, retailers.
-Available metrics: revenue, units sold, gross profit, margins, order fulfillment, delivery times, inventory levels.
+{_AMBIGUOUS_CONTEXT}
 
 Ask ONE focused question to disambiguate. Keep it conversational and brief.""",
 
-    "chitchat": """You are a friendly assistant for an FMCG supply chain analytics system.
+    "chitchat": f"""You are a friendly assistant for a {DOMAIN_DESCRIPTION} system.
 Respond to the user's message conversationally. Keep it brief and natural.
-If relevant, gently remind them you're best at answering supply chain and sales data questions.""",
+If relevant, gently remind them you're best at answering business data questions.""",
 
-    "history": """You are a helpful assistant for an FMCG supply chain analytics system.
+    "history": f"""You are a helpful assistant for a {DOMAIN_DESCRIPTION} system.
 The user is asking about their past conversations. You have their recent chat history below.
 Summarize or answer their question based on the history provided.
 If there's no relevant history, let them know politely.""",

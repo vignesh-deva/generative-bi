@@ -4,11 +4,11 @@ Insight Agent — converts query results into a plain-English business insight.
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, DOMAIN_DESCRIPTION
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
-SYSTEM_PROMPT = """You are a business intelligence analyst for an FMCG (Fast-Moving Consumer Goods) company.
+SYSTEM_PROMPT = f"""You are a business intelligence analyst for a {DOMAIN_DESCRIPTION} system.
 Given a natural language question, the SQL query used, and the query results, provide a clear, concise business insight.
 
 Rules:

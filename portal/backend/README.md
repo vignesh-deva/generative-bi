@@ -19,7 +19,7 @@ portal/backend/
 │   ├── response_agent.py # [small] Handles non-analytics intents (blocked/ambiguous/chitchat/history)
 │   ├── rag_agent.py     # RAG few-shot retrieval via pgvector cosine similarity
 │   ├── schema_agent.py  # [small + tool] Schema Linker — identifies relevant tables
-│   ├── semantic_layer.py # Static knowledge base — metrics, join paths, business rules
+│   ├── semantic_layer.py # Deprecated shim — re-exports from config/semantic_layer.py
 │   ├── sql_agent.py     # [large + sub-agents] SQL generation (Decomposer + adapt/single/multi)
 │   ├── validation_agent.py # Dry-run, Error Classifier, Correction Agent, Logic Check
 │   ├── insight_agent.py # [large] NL business insight generation
@@ -42,7 +42,8 @@ portal/backend/
 │   ├── seed.py          # Seed FMCG data (60 products, 150 retailers, 178k sales)
 │   └── seed_fewshots.py # Seed 15 NL-to-SQL few-shot examples (with embeddings)
 ├── config/
-│   └── settings.py      # LLM_MODEL, LLM_MODEL_SMALL, EMBEDDING_MODEL, DB URIs
+│   ├── settings.py      # LLM_MODEL, EMBEDDING_MODEL, DOMAIN_DESCRIPTION, DB URIs
+│   └── semantic_layer.py # Static knowledge base — metrics, join paths, business rules, known values
 ├── requirements.txt
 └── .env.example
 ```
@@ -70,7 +71,7 @@ Query → Fetch Chat History (MongoDB)
 | RAG Agent | — | pgvector | Few-shot NL-to-SQL retrieval by cosine similarity |
 | Response Agent | small | fetch_chat_history | Handles blocked, ambiguous, chitchat, history |
 | Schema Linker | small | list_tables, pull_schema | Selects relevant tables for the query |
-| Semantic Layer | — | — | Static knowledge base: metrics, join paths, business rules |
+| Semantic Layer | — | — | Static knowledge base in `config/`: metrics, join paths, business rules |
 | SQL Agent | large | decompose, generate | Decomposer sub-agent + adapt/single/multi strategies |
 | Dry-Run Validator | — | EXPLAIN | PostgreSQL EXPLAIN validation (no LLM cost) |
 | Error Classifier | small | none | Categorizes: syntax / schema / logic / runtime |
@@ -112,6 +113,32 @@ python -m db.verify         # verify 33 checks pass
 python -m db.seed_fewshots  # seed 15 NL-to-SQL few-shot examples
 ```
 
+## Testing
+
+### End-to-end (curl)
+```bash
+# Analytics query — full pipeline: classify → RAG → schema link → SQL → execute → insight
+curl -s -X POST http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is the total revenue by zone?"}' \
+  --no-buffer
+
+# Non-analytics — Response Agent path (3 LLM calls)
+curl -s -X POST http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Hello, what can you help me with?"}' \
+  --no-buffer
+
+# Health check
+curl http://localhost:8000/health
+```
+
+SSE events in the response:
+- `{"type": "status"}` — pipeline stage updates
+- `{"type": "sql"}` — generated SQL query
+- `{"type": "token"}` — streamed insight text (one word per event)
+- `[DONE]` — stream complete
+
 ## Configuration
 
 | Variable | Default | Description |
@@ -122,6 +149,7 @@ python -m db.seed_fewshots  # seed 15 NL-to-SQL few-shot examples
 | `LLM_API_KEY` | `ollama` | API key for the LLM endpoint |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Model for RAG embedding generation |
 | `MAX_SQL_RETRIES` | `3` | Max self-repair iterations in the validation loop |
+| `DOMAIN_DESCRIPTION` | `FMCG supply chain analytics` | Business domain label injected into all agent prompts |
 | `POSTGRES_URI` | `postgresql://genbi:genbi@localhost:5432/genbi` | PostgreSQL connection |
 | `MONGODB_URI` | `mongodb://localhost:27017` | MongoDB connection |
 
@@ -129,6 +157,7 @@ python -m db.seed_fewshots  # seed 15 NL-to-SQL few-shot examples
 
 | Date | Change |
 |------|--------|
+| 2026-03-27 | Move semantic_layer to config/; derive all domain context from semantic layer + DOMAIN_DESCRIPTION setting; fix hardcoded fallback table list in schema linker |
 | 2026-03-25 | v2 pipeline: 12 agents, 4 stages, semantic layer, schema linker, response agent, self-repair loop |
 | 2026-03-18 | Cleared stale TODOs; added seed/verify commands; updated databases table |
 | 2026-03-15 | Initial README — LangGraph, MongoDB, Docker architecture |

@@ -9,13 +9,13 @@ schema + semantic context for only the relevant tables.
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
 from agents.tools.schema_tools import list_tables, pull_schema
 from agents.tools.semantic_tools import get_semantic_context
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
-SYSTEM_PROMPT = """You are a schema linking agent for an FMCG supply chain database.
+SYSTEM_PROMPT = """You are a schema linking agent for a {domain} database.
 Given a user's natural language query and a list of available tables, identify which tables
 are needed to answer the query.
 
@@ -50,7 +50,7 @@ async def link_schema(query: str) -> dict:
         messages=[
             {
                 "role": "system",
-                "content": SYSTEM_PROMPT.format(tables=", ".join(all_tables)),
+                "content": SYSTEM_PROMPT.format(domain=DOMAIN_DESCRIPTION, tables=", ".join(all_tables)),
             },
             {"role": "user", "content": query},
         ],
@@ -65,9 +65,9 @@ async def link_schema(query: str) -> dict:
         if t.strip().lower() in all_tables
     ]
 
-    # Fallback: if LLM returned nothing useful, include core tables
+    # Fallback: if LLM returned nothing useful, use all available tables
     if not linked_tables:
-        linked_tables = ["sales", "products", "categories", "retailers"]
+        linked_tables = all_tables
 
     schema_context = await pull_schema(linked_tables)
     semantic_context = get_semantic_context(linked_tables)

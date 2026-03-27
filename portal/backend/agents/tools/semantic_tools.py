@@ -6,7 +6,7 @@ Tools:
                                   for the given tables
 """
 
-from agents.semantic_layer import SEMANTIC_LAYER
+from config.semantic_layer import SEMANTIC_LAYER
 
 
 def get_semantic_context(tables: list[str]) -> str:

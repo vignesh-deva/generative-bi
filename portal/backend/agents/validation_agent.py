@@ -9,7 +9,7 @@ Logic Check Agent: LLM validates that query results make sense for the question
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_MODEL_SMALL
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
 from agents.tools.sql_tools import dry_run_explain
 from agents.tools.schema_tools import pull_schema, value_samples
 
@@ -58,7 +58,7 @@ async def classify_error(sql: str, error: str) -> str:
 
 # ── Correction Agent ─────────────────────────────────────────────
 
-CORRECTION_PROMPT = """You are a SQL correction agent for an FMCG supply chain PostgreSQL database.
+CORRECTION_PROMPT = """You are a SQL correction agent for a {domain} PostgreSQL database.
 You are given:
 1. The original user question
 2. The failed SQL query
@@ -118,6 +118,7 @@ async def correct_sql(
             pass
 
     system = CORRECTION_PROMPT.format(
+        domain=DOMAIN_DESCRIPTION,
         schema_context=f"Schema:\n{schema_context}" if schema_context else "",
         sample_values=sample_info,
     )
@@ -148,7 +149,7 @@ async def correct_sql(
 
 # ── Logic Check Agent ────────────────────────────────────────────
 
-LOGIC_CHECK_PROMPT = """You are a logic check agent for an FMCG supply chain analytics system.
+LOGIC_CHECK_PROMPT = f"""You are a logic check agent for a {DOMAIN_DESCRIPTION} system.
 Given the user's question, the SQL query, and the query results, verify that:
 
 1. The SQL query logically answers the user's question

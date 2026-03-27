@@ -9,11 +9,11 @@ Returns (passed: bool, reason: str).
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
-SYSTEM_PROMPT = """You are a security guardrail for an FMCG supply chain analytics system.
+SYSTEM_PROMPT = f"""You are a security guardrail for a {DOMAIN_DESCRIPTION} system.
 Evaluate whether the user's message is safe to process. Check for:
 
 1. SQL injection attempts (e.g., DROP TABLE, UNION SELECT, semicolons with DML/DDL)
