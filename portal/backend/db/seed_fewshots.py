@@ -220,8 +220,8 @@ async def seed():
             if emb is not None:
                 await conn.execute(
                     "INSERT INTO fewshot_examples (question, sql_query, embedding, source) "
-                    "VALUES ($1, $2, $3::vector, 'manual')",
-                    ex["question"], ex["sql"], str(emb),
+                    "VALUES ($1, $2, $3, 'manual')",
+                    ex["question"], ex["sql"], emb,
                 )
             else:
                 await conn.execute(

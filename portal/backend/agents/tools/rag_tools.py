@@ -38,12 +38,12 @@ async def retrieve_fewshots(
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT question, sql_query, "
-            "1 - (embedding <=> $1::vector) AS similarity "
+            "1 - (embedding <=> $1) AS similarity "
             "FROM fewshot_examples "
             "WHERE embedding IS NOT NULL "
-            "ORDER BY embedding <=> $1::vector "
+            "ORDER BY embedding <=> $1 "
             "LIMIT $2",
-            str(embedding), limit,
+            embedding, limit,
         )
 
     if not rows:

@@ -15,10 +15,6 @@ langgraph>=0.4
 
 # LLM
 openai>=1.30
-langchain-openai>=0.3
-
-# RAG (pgvector integration)
-langchain-postgres>=0.0.12
 
 # Seed data
 Faker==40.8.0
