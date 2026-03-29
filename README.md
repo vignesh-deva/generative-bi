@@ -230,38 +230,163 @@ All data is persisted via Docker named volumes — survives container restarts.
 
 ---
 
-## Getting Started
+## Running the App
 
 ### Docker (recommended)
+
+**1. Configure environment**
 ```bash
 cp .env.example .env
-# configure LLM endpoint in .env
+# Edit .env — set your LLM_MODEL, LLM_MODEL_SMALL, LLM_BASE_URL, LLM_API_KEY
+```
+
+**2. Start all services**
+```bash
 docker-compose up
 ```
+
+PostgreSQL runs the schema migration automatically on first start (`data/migrations/001_initial_schema.sql`).
+
+**3. Seed the database** (first run only)
+```bash
+# Seed FMCG supply chain data (~178k sales records)
+docker-compose exec portal-backend python db/seed.py
+
+# Seed few-shot NL-to-SQL examples into pgvector (requires LLM_API_KEY for embeddings)
+docker-compose exec portal-backend python db/seed_fewshots.py
+```
+
+**4. Open in browser**
 
 | Service | URL |
 |---------|-----|
 | User Portal | http://localhost:3000 |
 | Operations Center | http://localhost:3001 |
-| Portal API | http://localhost:8000 |
-| Ops API | http://localhost:8001 |
+| Portal API docs | http://localhost:8000/docs |
+| Ops API docs | http://localhost:8001/docs |
 
-### Manual Setup
+---
+
+### Local Development
+
+For working on individual services without rebuilding Docker images.
+
+**Prerequisites:** PostgreSQL (with pgvector extension) and MongoDB running locally. Copy and configure `.env` files before starting:
+
+```bash
+cp .env.example portal/backend/.env
+cp .env.example ops/backend/.env
+# Edit each .env with your local DB URIs and LLM settings
+```
 
 #### Portal Backend
 ```bash
 cd portal/backend
+python -m venv venv && source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env
-# configure your model and DB URIs in .env
-uvicorn main:app --reload
+uvicorn main:app --reload --port 8000
+```
+
+Seed data (first run):
+```bash
+python db/seed.py
+python db/seed_fewshots.py
 ```
 
 #### Portal Frontend
 ```bash
 cd portal/frontend
 npm install
-npm run dev
+npm run dev          # starts on :3000
+```
+
+#### Ops Backend
+```bash
+cd ops/backend
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8001
+```
+
+#### Ops Frontend
+```bash
+cd ops/frontend
+npm install
+npm run dev          # starts on :3001
+```
+
+---
+
+## Testing
+
+The test suite has two layers with different purposes and run frequencies.
+
+### Unit Tests — Orchestration (no LLM, ~4 seconds)
+
+Tests the LangGraph graph routing, retry loops, error handling, and guardrail short-circuiting. All LLM calls and DB calls are mocked. These are deterministic and fast — run them on every commit.
+
+```bash
+cd portal/backend
+python -m pytest tests/test_pipeline.py -v
+```
+
+**What is covered (21 tests):**
+
+| Category | Tests | What is verified |
+|---|---|---|
+| Analytics happy path | 6 | Full pipeline: classify → schema → sql → dry-run → execute → logic → insight |
+| Non-analytics routing | 4 | Chitchat, history, ambiguous queries exit early via response agent |
+| Guardrails blocking | 4 | SQL injection, prompt injection, DML requests are blocked |
+| Dry-run retry loop | 3 | Single retry, double retry, max retries exhausted then proceeds |
+| Execution errors | 2 | DB connection lost, statement timeout produce error responses |
+| Logic check failures | 2 | Logic correction succeeds; max retries causes pipeline to proceed anyway |
+
+---
+
+### Eval Tests — LLM Integration (requires a configured LLM endpoint)
+
+Tests that the individual agents and the full pipeline produce correct output when real LLM calls are made. DB I/O is mocked — no live PostgreSQL or MongoDB needed. These are non-deterministic and consume tokens, so they are opt-in.
+
+Enable by setting `RUN_EVAL=1`:
+
+```bash
+cd portal/backend
+
+# Run the full eval suite
+RUN_EVAL=1 python -m pytest tests/eval/ -v
+
+# Run individual eval files
+RUN_EVAL=1 python -m pytest tests/eval/test_classifier.py -v     # intent accuracy (12 cases)
+RUN_EVAL=1 python -m pytest tests/eval/test_guardrails.py -v     # safe/unsafe detection (15 cases)
+RUN_EVAL=1 python -m pytest tests/eval/test_sql_agent.py -v      # SQL structure validation (7 cases)
+RUN_EVAL=1 python -m pytest tests/eval/test_pipeline_e2e.py -v   # full pipeline (5 cases)
+```
+
+**What is covered:**
+
+| File | Cases | What is verified |
+|---|---|---|
+| `test_classifier.py` | 12 | Correct intent for analytics, chitchat, history, ambiguous queries; follow-up resolution with chat history |
+| `test_guardrails.py` | 15 | Safe analytics queries pass; SQL injection, prompt injection, DML, PII extraction are blocked |
+| `test_sql_agent.py` | 7 | Generated SQL starts with `SELECT`/`WITH`, no DML keywords, references expected tables; RAG adapt path |
+| `test_pipeline_e2e.py` | 5 | End-to-end: correct routing, SQL present for analytics, non-empty insights, chitchat handled, guardrails active |
+
+**When to run evals:**
+- After changing any agent prompt
+- After switching LLM models
+- Before merging a feature branch that touches the pipeline
+
+---
+
+### Running both suites
+
+```bash
+cd portal/backend
+
+# Unit tests only (default, CI-safe)
+python -m pytest tests/test_pipeline.py -v
+
+# Unit tests + eval (manual, pre-merge)
+RUN_EVAL=1 python -m pytest tests/ -v
 ```
 
 ---
@@ -272,12 +397,12 @@ All model and database settings are configured via environment variables (`.env`
 
 ```env
 # Large model — SQL generation, correction, insights
-LLM_MODEL=llama3:70b
-# Small model — classification, routing, guardrails
-LLM_MODEL_SMALL=llama3:8b
+LLM_MODEL=gpt-5.4
+# Small model — classification, routing, guardrails, schema linking
+LLM_MODEL_SMALL=gpt-5.4-mini
 # LLM endpoint (any OpenAI-compatible API)
-LLM_BASE_URL=http://localhost:11434/v1
-LLM_API_KEY=ollama
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=your-api-key
 
 # Embedding model — used for RAG few-shot similarity search
 EMBEDDING_MODEL=text-embedding-3-small
@@ -292,7 +417,7 @@ MONGODB_URI=mongodb://localhost:27017
 
 | Setup | Small Model | Large Model |
 |-------|-------------|-------------|
+| OpenAI | `gpt-5.4-mini` | `gpt-5.4` |
 | Local (Ollama) | `llama3:8b` | `llama3:70b` / `deepseek-coder-v2` |
-| OpenAI | `gpt-4o-mini` | `gpt-4o` |
 | Anthropic | `claude-haiku-4-5` | `claude-sonnet-4-6` |
 | Single model | Set both to the same value | |
