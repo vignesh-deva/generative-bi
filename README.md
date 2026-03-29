@@ -240,22 +240,25 @@ cp .env.example .env
 # Edit .env — set your LLM_MODEL, LLM_MODEL_SMALL, LLM_BASE_URL, LLM_API_KEY
 ```
 
-**2. Start all services**
+**2. Build and start all services**
 ```bash
-docker-compose up
+docker compose build
+docker compose up -d
 ```
+
+> **After any code change**, always run `docker compose build` before `docker compose up -d` — `up` alone reuses cached images and will not pick up your changes.
 
 On **first start**, Docker creates two named volumes (`pg-data`, `mongo-data`) and PostgreSQL automatically runs all files in `data/migrations/` in order — schema is created before the backends start. On **subsequent starts**, the volumes already exist so migrations are skipped and your data is preserved.
 
-> **Resetting data:** `docker-compose down -v` removes the volumes and wipes all data. The next `docker-compose up` will re-run migrations from scratch. Use this if setup failed partway through and you want a clean slate.
+> **Resetting data:** `docker compose down -v` removes the volumes and wipes all data. The next `docker compose up -d` will re-run migrations from scratch. Use this if setup failed partway through and you want a clean slate.
 
 **3. Seed the database** (first run only)
 ```bash
 # Seed FMCG supply chain data (~178k sales records)
-docker-compose exec portal-backend python db/seed.py
+docker compose exec portal-backend python db/seed.py
 
 # Seed few-shot NL-to-SQL examples into pgvector (requires LLM_API_KEY for embeddings)
-docker-compose exec portal-backend python db/seed_fewshots.py
+docker compose exec portal-backend python db/seed_fewshots.py
 ```
 
 **4. Open in browser**
@@ -277,7 +280,7 @@ For working on individual services without rebuilding Docker images.
 
 ```bash
 cp .env.example portal/backend/.env
-cp .env.example ops/backend/.env
+cp ops/backend/.env.example ops/backend/.env
 # Edit each .env with your local DB URIs and LLM settings
 ```
 
