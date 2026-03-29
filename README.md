@@ -205,7 +205,7 @@ The PostgreSQL database is modelled from an FMCG manufacturer's perspective:
 | **RAG examples** | pgvector (PostgreSQL extension) | Few-shot NL-to-SQL pairs with embeddings — curated via Operations Center |
 | **Chat history** | MongoDB | Sessions, messages, feedback — document-shaped, persistent |
 
-All data is persisted via Docker named volumes — survives container restarts.
+All data is persisted via Docker named volumes (`pg-data`, `mongo-data`). Data survives `docker-compose down` and container restarts. To wipe all data and start fresh, use `docker-compose down -v`.
 
 ---
 
@@ -245,7 +245,9 @@ cp .env.example .env
 docker-compose up
 ```
 
-PostgreSQL runs the schema migration automatically on first start (`data/migrations/001_initial_schema.sql`).
+On **first start**, Docker creates two named volumes (`pg-data`, `mongo-data`) and PostgreSQL automatically runs all files in `data/migrations/` in order — schema is created before the backends start. On **subsequent starts**, the volumes already exist so migrations are skipped and your data is preserved.
+
+> **Resetting data:** `docker-compose down -v` removes the volumes and wipes all data. The next `docker-compose up` will re-run migrations from scratch. Use this if setup failed partway through and you want a clean slate.
 
 **3. Seed the database** (first run only)
 ```bash

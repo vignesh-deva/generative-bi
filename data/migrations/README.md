@@ -11,6 +11,7 @@ These SQL files are automatically applied by the PostgreSQL Docker container on 
 | File | Purpose |
 |------|---------|
 | `001_initial_schema.sql` | Creates all tables, indexes, and the pgvector extension |
+| `002_seed_data.sql` | Reserved placeholder — empty. FMCG data is seeded manually via `portal/backend/db/seed.py` |
 
 ## Schema Summary
 
@@ -54,6 +55,6 @@ These SQL files are automatically applied by the PostgreSQL Docker container on 
 
 | Date | Change |
 |------|--------|
-| 2026-03-18 | Removed stale session table references (moved to MongoDB); removed 002_seed_data.sql placeholder |
+| 2026-03-18 | Removed stale session table references (moved to MongoDB); emptied 002_seed_data.sql (data seeding moved to seed.py) |
 | 2026-03-15 | Migrated from SQLite to PostgreSQL; added pgvector fewshot_examples table |
 | 2026-03-11 | Initial README |
