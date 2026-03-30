@@ -59,7 +59,8 @@ class PipelineState(TypedDict, total=False):
     sql_query: str
 
     # Stage 3: Validation loop
-    sql_retries: int
+    dry_run_retries: int
+    logic_retries: int
     dry_run_passed: bool
     dry_run_error: str
     error_category: str
@@ -167,7 +168,11 @@ async def sql_node(state: PipelineState) -> PipelineState:
         few_shot_examples=state.get("few_shot_examples", []),
         chat_history=state.get("chat_history", []),
     )
-    return {"sql_query": sql, "sql_retries": state.get("sql_retries", 0)}
+    return {
+        "sql_query": sql,
+        "dry_run_retries": state.get("dry_run_retries", 0),
+        "logic_retries": state.get("logic_retries", 0),
+    }
 
 
 # ── Stage 3: Dry-Run Validation ──────────────────────────────────
@@ -194,7 +199,7 @@ async def error_classify_node(state: PipelineState) -> PipelineState:
 
 
 async def correction_node(state: PipelineState) -> PipelineState:
-    retries = state.get("sql_retries", 0) + 1
+    retries = state.get("dry_run_retries", 0) + 1
     corrected = await correct_sql(
         query=state["query"],
         sql=state.get("sql_query", ""),
@@ -202,11 +207,11 @@ async def correction_node(state: PipelineState) -> PipelineState:
         error_category=state.get("error_category", "syntax"),
         tables=state.get("linked_tables", []),
     )
-    return {"sql_query": corrected, "sql_retries": retries}
+    return {"sql_query": corrected, "dry_run_retries": retries}
 
 
 def route_after_correction(state: PipelineState) -> str:
-    if state.get("sql_retries", 0) >= MAX_SQL_RETRIES:
+    if state.get("dry_run_retries", 0) >= MAX_SQL_RETRIES:
         return "max_retries"
     return "retry"
 
@@ -240,15 +245,14 @@ def route_after_logic(state: PipelineState) -> str:
     if state.get("logic_passed", True):
         return "correct"
     # Logic failed — route back to correction if retries remain
-    retries = state.get("sql_retries", 0)
-    if retries >= MAX_SQL_RETRIES:
+    if state.get("logic_retries", 0) >= MAX_SQL_RETRIES:
         return "correct"  # proceed anyway after max retries
     return "logic_error"
 
 
 async def logic_error_to_correction_node(state: PipelineState) -> PipelineState:
     """Convert logic error into a correction attempt."""
-    retries = state.get("sql_retries", 0) + 1
+    retries = state.get("logic_retries", 0) + 1
     corrected = await correct_sql(
         query=state["query"],
         sql=state.get("sql_query", ""),
@@ -256,7 +260,7 @@ async def logic_error_to_correction_node(state: PipelineState) -> PipelineState:
         error_category="logic",
         tables=state.get("linked_tables", []),
     )
-    return {"sql_query": corrected, "sql_retries": retries}
+    return {"sql_query": corrected, "logic_retries": retries}
 
 
 # ── Stage 4: Insight Agent ───────────────────────────────────────

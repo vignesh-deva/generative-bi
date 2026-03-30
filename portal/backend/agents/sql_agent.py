@@ -131,7 +131,6 @@ async def _generate_single_sql(
     semantic_context: str,
     few_shot_examples: list[dict],
     chat_history: list[dict],
-    previous_error: str = "",
 ) -> str:
     """Generate a single SQL query."""
     system = SYSTEM_PROMPT.format(
@@ -146,14 +145,6 @@ async def _generate_single_sql(
         {"role": "system", "content": system},
         {"role": "user", "content": query},
     ]
-
-    if previous_error:
-        messages.append(
-            {
-                "role": "user",
-                "content": f"The previous SQL had an error:\n{previous_error}\nPlease fix and regenerate.",
-            }
-        )
 
     response = await _client.chat.completions.create(
         model=LLM_MODEL,
@@ -220,7 +211,6 @@ async def generate_sql(
     semantic_context: str = "",
     few_shot_examples: list[dict] | None = None,
     chat_history: list[dict] | None = None,
-    previous_error: str = "",
 ) -> str:
     """Generate SQL for the user's query.
 
@@ -228,12 +218,6 @@ async def generate_sql(
     """
     examples = few_shot_examples or []
     history = chat_history or []
-
-    # If this is a retry with error feedback, skip decomposition
-    if previous_error:
-        return await _generate_single_sql(
-            query, schema_context, semantic_context, examples, history, previous_error
-        )
 
     plan = await _decompose(query, examples)
 

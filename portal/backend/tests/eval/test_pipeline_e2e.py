@@ -15,9 +15,14 @@ fixture so the suite runs without infrastructure.
 Run:  RUN_EVAL=1 python -m pytest tests/eval/test_pipeline_e2e.py -v
 """
 
+import os
 import re
 import pytest
 from graph.pipeline import pipeline
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("RUN_EVAL"), reason="Set RUN_EVAL=1 to run eval tests"
+)
 
 FORBIDDEN_SQL = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE)\b", re.IGNORECASE

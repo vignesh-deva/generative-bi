@@ -52,13 +52,15 @@ async def execute_query(sql: str, params: list | None = None) -> dict[str, Any]:
     Raises:
         ValueError  if the statement is not a SELECT (basic guard).
     """
+    # Application-level guard: fast-fail on obviously non-SELECT statements.
+    # The real safety net is the read-only transaction below — PostgreSQL will
+    # reject any DML/DDL even if this check is somehow bypassed.
     stripped = sql.strip().lstrip("(").upper()
     if not stripped.startswith("SELECT") and not stripped.startswith("WITH"):
         raise ValueError("Only SELECT / WITH queries are allowed via execute_query().")
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        # Use a read-only transaction for safety
         async with conn.transaction(readonly=True):
             rows = await conn.fetch(sql, *(params or []))
             columns = [key for key in rows[0].keys()] if rows else []

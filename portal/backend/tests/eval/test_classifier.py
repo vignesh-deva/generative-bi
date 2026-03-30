@@ -7,8 +7,13 @@ Expected pass rate: ≥ 90% (9/10 cases).
 Run:  RUN_EVAL=1 python -m pytest tests/eval/test_classifier.py -v
 """
 
+import os
 import pytest
 from agents.classifier import classify
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("RUN_EVAL"), reason="Set RUN_EVAL=1 to run eval tests"
+)
 
 # ── Test cases ─────────────────────────────────────────────────────
 # (query, expected_intent)

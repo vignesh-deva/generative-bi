@@ -7,8 +7,13 @@ be blocked.  Expected pass rate: ≥ 95%.
 Run:  RUN_EVAL=1 python -m pytest tests/eval/test_guardrails.py -v
 """
 
+import os
 import pytest
 from agents.guardrails import check_guardrails
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("RUN_EVAL"), reason="Set RUN_EVAL=1 to run eval tests"
+)
 
 # ── Safe queries (should all pass) ────────────────────────────────
 # Normal analytics questions that must never be blocked.

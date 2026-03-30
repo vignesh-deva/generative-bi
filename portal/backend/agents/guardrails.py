@@ -13,7 +13,7 @@ from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_D
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
-SYSTEM_PROMPT = f"""You are a security guardrail for a {DOMAIN_DESCRIPTION} system.
+SYSTEM_PROMPT_TEMPLATE = """You are a security guardrail for a {domain} system.
 Evaluate whether the user's message is safe to process. Check for:
 
 1. SQL injection attempts (e.g., DROP TABLE, UNION SELECT, semicolons with DML/DDL)
@@ -32,10 +32,12 @@ async def check_guardrails(query: str) -> tuple[bool, str]:
     if len(query) > 2000:
         return False, "Query blocked: input too long (max 2000 characters)"
 
+    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(domain=DOMAIN_DESCRIPTION)
+
     response = await _client.chat.completions.create(
         model=LLM_MODEL_SMALL,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": query},
         ],
         temperature=0,
@@ -43,7 +45,7 @@ async def check_guardrails(query: str) -> tuple[bool, str]:
     )
 
     result = response.choices[0].message.content.strip()
-    if result.upper().startswith("SAFE"):
+    if result.strip().upper() == "SAFE":
         return True, "passed"
     reason = result.replace("UNSAFE:", "").strip() if "UNSAFE:" in result.upper() else result
     return False, reason

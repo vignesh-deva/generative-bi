@@ -10,9 +10,14 @@ Does NOT execute queries against a real DB — asserts structural properties:
 Run:  RUN_EVAL=1 python -m pytest tests/eval/test_sql_agent.py -v
 """
 
+import os
 import re
 import pytest
 from agents.sql_agent import generate_sql
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("RUN_EVAL"), reason="Set RUN_EVAL=1 to run eval tests"
+)
 from tests.eval.conftest import SCHEMA_STUB, FMCG_TABLES
 from config.semantic_layer import SEMANTIC_LAYER
 from agents.tools.semantic_tools import get_semantic_context

@@ -14,9 +14,8 @@ from unittest.mock import AsyncMock, patch
 # ── Skip gate ──────────────────────────────────────────────────────
 # Eval tests are opt-in — they need a real LLM endpoint and burn tokens.
 # Set RUN_EVAL=1 in the environment to enable them.
-
-if not os.getenv("RUN_EVAL"):
-    collect_ignore_glob = ["*.py"]  # skip entire directory
+# Each eval test file has a pytestmark that skips when RUN_EVAL is not set,
+# so they are skipped even when invoked directly (e.g. pytest tests/eval/test_guardrails.py).
 
 
 # ── FMCG schema constants (used in sql_agent + pipeline e2e tests) ─
