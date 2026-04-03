@@ -1,24 +1,25 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f1f5f9;
+  --background: #f0f4f8;
   --foreground: #0f172a;
-  --sidebar-bg: #0f172a;
-  --sidebar-hover: #1e293b;
-  --sidebar-active: rgba(59, 130, 246, 0.15);
-  --sidebar-active-text: #60a5fa;
-  --sidebar-text: #94a3b8;
-  --sidebar-heading: #64748b;
+  --sidebar-bg: #18181b;
+  --sidebar-hover: #27272a;
+  --sidebar-active: rgba(59, 130, 246, 0.12);
+  --sidebar-active-border: #3b82f6;
+  --sidebar-active-text: #93c5fd;
+  --sidebar-text: #a1a1aa;
+  --sidebar-heading: #52525b;
   --header-bg: #ffffff;
-  --header-border: #e2e8f0;
+  --header-border: #e5e7eb;
   --card-bg: #ffffff;
-  --card-border: #e2e8f0;
-  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
-  --card-shadow-hover: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
-  --kpi-accent: #3b82f6;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
+  --card-border: #e5e7eb;
+  --card-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04), 0 1px 4px 0 rgba(0, 0, 0, 0.03);
+  --card-shadow-hover: 0 4px 12px -2px rgba(0, 0, 0, 0.08), 0 2px 6px -2px rgba(0, 0, 0, 0.05);
+  --kpi-accent: #2563eb;
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
 }
 
 @theme inline {

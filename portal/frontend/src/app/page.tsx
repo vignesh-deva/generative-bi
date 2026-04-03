@@ -21,20 +21,21 @@ import KpiCard from "@/components/KpiCard";
 import ChartCard from "@/components/ChartCard";
 
 const CHART_COLORS = [
-  "#3b82f6",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#ec4899",
+  "#2563eb",
+  "#059669",
+  "#d97706",
+  "#dc2626",
+  "#7c3aed",
+  "#0891b2",
 ];
 
-const CHART_GRID = { stroke: "#f1f5f9", strokeDasharray: "none" };
-const AXIS_STYLE = { fontSize: 11, fill: "#94a3b8" };
+const CHART_GRID = { stroke: "#e5e7eb", strokeDasharray: "none" };
+const AXIS_STYLE = { fontSize: 11, fill: "#6b7280" };
 const TOOLTIP_STYLE = {
   contentStyle: {
+    background: "#ffffff",
     borderRadius: "8px",
-    border: "1px solid #e2e8f0",
+    border: "1px solid #d1d5db",
     boxShadow: "0 4px 6px -1px rgba(0,0,0,0.06)",
     fontSize: "12px",
     padding: "8px 12px",
@@ -104,7 +105,7 @@ export default function DashboardPage() {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
           <p className="text-sm text-[var(--text-muted)]">
             Loading dashboard...
           </p>
@@ -115,13 +116,21 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-xl font-bold text-[var(--text-primary)]">
-          Dashboard
-        </h1>
-        <p className="mt-0.5 text-sm text-[var(--text-muted)]">
-          FMCG supply chain performance overview
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-[var(--text-primary)]">
+            Dashboard
+          </h1>
+          <p className="mt-0.5 text-sm text-[var(--text-muted)]">
+            FMCG supply chain performance overview
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+            Live
+          </span>
+          <span className="text-xs text-[var(--text-muted)]">FY 2025</span>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-5">
@@ -166,7 +175,7 @@ export default function DashboardPage() {
                 formatter={(v) => `₹${formatINR(Number(v))}`}
                 {...TOOLTIP_STYLE}
               />
-              <Bar dataKey="revenue" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="revenue" fill="#2563eb" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -194,10 +203,10 @@ export default function DashboardPage() {
               <Line
                 type="monotone"
                 dataKey="revenue"
-                stroke="#10b981"
+                stroke="#059669"
                 strokeWidth={2.5}
-                dot={{ r: 4, fill: "#10b981", strokeWidth: 2, stroke: "#fff" }}
-                activeDot={{ r: 6, fill: "#10b981", strokeWidth: 2, stroke: "#fff" }}
+                dot={{ r: 4, fill: "#059669", strokeWidth: 2, stroke: "#fff" }}
+                activeDot={{ r: 6, fill: "#059669", strokeWidth: 2, stroke: "#fff" }}
               />
             </LineChart>
           </ResponsiveContainer>
@@ -226,7 +235,7 @@ export default function DashboardPage() {
                 formatter={(v) => `₹${formatINR(Number(v))}`}
                 {...TOOLTIP_STYLE}
               />
-              <Bar dataKey="revenue" fill="#f59e0b" radius={[0, 6, 6, 0]} />
+              <Bar dataKey="revenue" fill="#d97706" radius={[0, 6, 6, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -279,10 +288,10 @@ export default function DashboardPage() {
               <Bar dataKey="count" radius={[6, 6, 0, 0]}>
                 {orderFulfillment.map((entry, i) => {
                   const colorMap: Record<string, string> = {
-                    Fulfilled: "#10b981",
-                    Partial: "#f59e0b",
-                    Pending: "#3b82f6",
-                    Cancelled: "#ef4444",
+                    Fulfilled: "#059669",
+                    Partial: "#d97706",
+                    Pending: "#2563eb",
+                    Cancelled: "#dc2626",
                   };
                   return (
                     <Cell
@@ -313,7 +322,7 @@ export default function DashboardPage() {
                 tickFormatter={(v) => v.toLocaleString()}
               />
               <Tooltip {...TOOLTIP_STYLE} />
-              <Bar dataKey="stock" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="stock" fill="#7c3aed" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>

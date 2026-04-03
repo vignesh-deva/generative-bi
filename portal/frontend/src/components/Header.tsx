@@ -1,11 +1,25 @@
 "use client";
 
-import { Bell, Search, User } from "lucide-react";
+import { Bell, Search, PanelLeftOpen } from "lucide-react";
 
-export default function Header() {
+export default function Header({
+  onToggleSidebar,
+  sidebarCollapsed,
+}: {
+  onToggleSidebar: () => void;
+  sidebarCollapsed: boolean;
+}) {
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--header-border)] bg-[var(--header-bg)] px-6 rounded-t-2xl">
       <div className="flex items-center gap-3">
+        {sidebarCollapsed && (
+          <button
+            onClick={onToggleSidebar}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors hover:bg-[var(--background)]"
+          >
+            <PanelLeftOpen size={18} />
+          </button>
+        )}
         <div className="relative">
           <Search
             size={16}
@@ -26,8 +40,8 @@ export default function Header() {
         </button>
         <div className="mx-2 h-6 w-px bg-[var(--card-border)]" />
         <button className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--background)]">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-xs font-semibold text-white">
-            <User size={16} />
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-sm font-bold text-white">
+            A
           </div>
           <div className="text-left">
             <p className="text-sm font-medium leading-none text-[var(--text-primary)]">
