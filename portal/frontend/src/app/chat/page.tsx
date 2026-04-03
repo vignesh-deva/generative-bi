@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, FormEvent } from "react";
 import { Send, Bot, User, Loader2, Sparkles, Table2 } from "lucide-react";
+import { fetchMessages } from "@/lib/api";
 
 type Message = {
   id: string;
@@ -11,6 +12,13 @@ type Message = {
   timestamp: Date;
 };
 
+type HistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+  sql_query?: string | null;
+  created_at: string;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function ChatPage() {
@@ -18,16 +26,43 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [showSql, setShowSql] = useState<string | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sessionIdRef = useRef<string | null>(null);
+
+  // On mount: if URL has ?session=<id>, load that session's history
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session");
+    if (!sessionId) return;
+
+    sessionIdRef.current = sessionId;
+    setLoadingHistory(true);
+
+    fetchMessages<HistoryMessage[]>(sessionId)
+      .then((data) => {
+        setMessages(
+          data.map((m) => ({
+            id: crypto.randomUUID(),
+            role: m.role,
+            content: m.content,
+            sql: m.sql_query ?? undefined,
+            timestamp: new Date(m.created_at),
+          }))
+        );
+      })
+      .catch(() => {})
+      .finally(() => setLoadingHistory(false));
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    if (!loadingHistory) inputRef.current?.focus();
+  }, [loadingHistory]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -54,10 +89,20 @@ export default function ChatPage() {
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: text }),
+        body: JSON.stringify({
+          query: text,
+          session_id: sessionIdRef.current,
+        }),
       });
 
       if (!res.ok) throw new Error(`API error: ${res.status}`);
+
+      // Capture session ID from the first message in a new conversation
+      const returnedSessionId = res.headers.get("X-Session-Id");
+      if (returnedSessionId && !sessionIdRef.current) {
+        sessionIdRef.current = returnedSessionId;
+        window.history.replaceState(null, "", `/chat?session=${returnedSessionId}`);
+      }
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
@@ -127,6 +172,17 @@ export default function ChatPage() {
       e.preventDefault();
       handleSubmit(e);
     }
+  }
+
+  if (loadingHistory) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+          <p className="text-sm text-[var(--text-muted)]">Loading conversation...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
