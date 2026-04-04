@@ -5,9 +5,13 @@ Pure LLM call (no tools). Receives recent chat history for follow-up resolution.
 Returns one of: "analytics", "chitchat", "history", or "ambiguous"
 """
 
+import logging
+
 from openai import AsyncOpenAI
 
 from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
+
+logger = logging.getLogger(__name__)
 from config.semantic_layer import SEMANTIC_LAYER
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
@@ -45,6 +49,8 @@ def _format_history(chat_history: list[dict]) -> str:
 
 
 async def classify(query: str, chat_history: list[dict] | None = None) -> str:
+    logger.info("query=%.120s history_turns=%d", query, len(chat_history or []))
+
     user_content = query
     if chat_history:
         user_content = f"{_format_history(chat_history)}\n\nCurrent message: {query}"
@@ -58,7 +64,9 @@ async def classify(query: str, chat_history: list[dict] | None = None) -> str:
         temperature=0,
         max_tokens=20,
     )
-    intent = response.choices[0].message.content.strip().lower().strip('"')
-    if intent not in ("analytics", "chitchat", "history", "ambiguous"):
-        return "analytics"
+    raw = response.choices[0].message.content.strip().lower().strip('"')
+    intent = raw if raw in ("analytics", "chitchat", "history", "ambiguous") else "analytics"
+    if raw != intent:
+        logger.warning("unexpected LLM response=%r, defaulting to analytics", raw)
+    logger.info("intent=%s", intent)
     return intent

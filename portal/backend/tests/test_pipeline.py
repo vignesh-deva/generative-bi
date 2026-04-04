@@ -51,6 +51,7 @@ def mocks():
     """Mock all agent functions with analytics-happy-path defaults."""
     agents = {
         "fetch_chat_history": AsyncMock(return_value=[]),
+        "rewrite_query": AsyncMock(side_effect=lambda q, **kw: q),
         "classify": AsyncMock(return_value="analytics"),
         "check_guardrails": AsyncMock(return_value=(True, "passed")),
         "retrieve_examples": AsyncMock(return_value=[]),

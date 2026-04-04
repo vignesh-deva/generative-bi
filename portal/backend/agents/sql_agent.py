@@ -8,9 +8,14 @@ Includes two sub-agents (invoked as internal calls):
 Receives: schema context, semantic context, RAG few-shot examples, chat history.
 """
 
+import logging
+from datetime import date
+
 from openai import AsyncOpenAI
 
 from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
+
+logger = logging.getLogger(__name__)
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
@@ -47,6 +52,10 @@ async def _decompose(query: str, few_shot_examples: list[dict]) -> dict:
     if few_shot_examples:
         top = few_shot_examples[0]
         if top.get("similarity", 0) >= RAG_SIMILARITY_THRESHOLD:
+            logger.info(
+                "strategy=adapt similarity=%.3f matched_q=%.80s",
+                top["similarity"], top["question"],
+            )
             return {"strategy": "adapt", "matched": top}
 
     response = await _client.chat.completions.create(
@@ -61,6 +70,7 @@ async def _decompose(query: str, few_shot_examples: list[dict]) -> dict:
 
     result = response.choices[0].message.content.strip()
     if result.upper().startswith("SINGLE"):
+        logger.info("strategy=single")
         return {"strategy": "single"}
 
     # Parse multi-step plan
@@ -70,14 +80,17 @@ async def _decompose(query: str, few_shot_examples: list[dict]) -> dict:
         if line and line[0].isdigit() and "." in line:
             steps.append(line.split(".", 1)[1].strip())
     if not steps:
+        logger.info("strategy=single (multi parse failed)")
         return {"strategy": "single"}
 
+    logger.info("strategy=multi steps=%s", steps)
     return {"strategy": "multi", "steps": steps}
 
 
 # ── SQL generation prompt ────────────────────────────────────────
 
 SYSTEM_PROMPT = """You are a PostgreSQL SQL expert for a {domain} database.
+Today's date is {today}.
 Given the database schema, semantic context, and a natural language question, generate a single SELECT query.
 
 Rules:
@@ -88,6 +101,7 @@ Rules:
 - Format numbers appropriately (ROUND for decimals)
 - Limit results to 50 rows unless the user asks for more
 - Follow the metric definitions and business rules in the semantic context
+- When filtering by entity names (products, categories, zones, etc.), use the exact values from the VALUE SAMPLES section — do NOT guess with ILIKE patterns
 
 Database schema:
 {schema}
@@ -135,6 +149,7 @@ async def _generate_single_sql(
     """Generate a single SQL query."""
     system = SYSTEM_PROMPT.format(
         domain=DOMAIN_DESCRIPTION,
+        today=date.today().isoformat(),
         schema=schema_context,
         semantic=semantic_context,
         fewshots=_format_fewshots(few_shot_examples),
@@ -156,11 +171,14 @@ async def _generate_single_sql(
     sql = response.choices[0].message.content.strip()
     if sql.startswith("```"):
         sql = sql.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    logger.info("generated SQL (single):\n%s", sql)
     return sql
 
 
-ADAPT_PROMPT = """You are a PostgreSQL SQL expert. You have a reference query that is very similar to the user's question.
+ADAPT_PROMPT = """You are a PostgreSQL SQL expert. Today's date is {today}.
+You have a reference query that is very similar to the user's question.
 Adapt the reference SQL to answer the user's specific question. Only change what's necessary (filters, columns, grouping).
+When filtering by entity names, use exact values from the VALUE SAMPLES section — do NOT guess with ILIKE patterns.
 
 Reference question: {ref_question}
 Reference SQL: {ref_sql}
@@ -181,6 +199,7 @@ async def _adapt_matched_sql(
 ) -> str:
     """Adapt a high-similarity RAG match to the user's specific question."""
     system = ADAPT_PROMPT.format(
+        today=date.today().isoformat(),
         ref_question=matched["question"],
         ref_sql=matched["sql"],
         schema=schema_context,
@@ -200,6 +219,7 @@ async def _adapt_matched_sql(
     sql = response.choices[0].message.content.strip()
     if sql.startswith("```"):
         sql = sql.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    logger.info("generated SQL (adapt):\n%s", sql)
     return sql
 
 

@@ -1,7 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect, FormEvent } from "react";
-import { Send, Bot, User, Loader2, Sparkles, Table2 } from "lucide-react";
+import { useState, useRef, useEffect, FormEvent, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  Send, Bot, User, Loader2, Sparkles, Table2,
+  ChevronRight, ChevronDown,
+} from "lucide-react";
 import { fetchMessages } from "@/lib/api";
 
 type Message = {
@@ -9,8 +13,62 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   sql?: string;
+  steps?: string[];
+  stepsOpen?: boolean;
   timestamp: Date;
 };
+
+function StepsPanel({
+  steps,
+  isOpen,
+  isStreaming,
+  onToggle,
+}: {
+  steps: string[];
+  isOpen: boolean;
+  isStreaming: boolean;
+  onToggle: () => void;
+}) {
+  if (!isOpen) {
+    return (
+      <button
+        onClick={onToggle}
+        className="mb-2 flex items-center gap-1.5 rounded-full border border-[var(--card-border)] bg-slate-50 px-2.5 py-1 text-[11px] text-[var(--text-muted)] transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+      >
+        <ChevronRight size={11} />
+        {steps.length} step{steps.length !== 1 ? "s" : ""}
+      </button>
+    );
+  }
+  return (
+    <div className="mb-2 rounded-lg border border-[var(--card-border)] bg-slate-50 px-3 py-2">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center justify-between text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+      >
+        <span className="text-[10px] uppercase tracking-wide">Steps</span>
+        <ChevronDown size={11} />
+      </button>
+      <ul className="mt-2 space-y-1.5">
+        {steps.map((step, i) => {
+          const isActive = isStreaming && i === steps.length - 1;
+          return (
+            <li key={i} className="flex items-center gap-2 text-[11px]">
+              {isActive ? (
+                <Loader2 size={10} className="shrink-0 animate-spin text-blue-500" />
+              ) : (
+                <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
+              )}
+              <span className={isActive ? "text-blue-600" : "text-[var(--text-muted)]"}>
+                {step}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 type HistoryMessage = {
   role: "user" | "assistant";
@@ -21,7 +79,7 @@ type HistoryMessage = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export default function ChatPage() {
+function ChatPageInner() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -30,17 +88,33 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const streamingMsgIdRef = useRef<string | null>(null);
+  const searchParams = useSearchParams();
+  const sessionParam = searchParams.get("session");
 
-  // On mount: if URL has ?session=<id>, load that session's history
+  function toggleSteps(msgId: string) {
+    setMessages((prev) =>
+      prev.map((m) => m.id === msgId ? { ...m, stepsOpen: !m.stepsOpen } : m)
+    );
+  }
+
+  // Load session history whenever the ?session= param changes (including on mount)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get("session");
-    if (!sessionId) return;
+    if (!sessionParam) {
+      // New chat — reset state
+      sessionIdRef.current = null;
+      setMessages([]);
+      return;
+    }
 
-    sessionIdRef.current = sessionId;
+    // Avoid re-fetching if we're already on this session (e.g. after sending a message)
+    if (sessionIdRef.current === sessionParam) return;
+
+    sessionIdRef.current = sessionParam;
     setLoadingHistory(true);
+    setMessages([]);
 
-    fetchMessages<HistoryMessage[]>(sessionId)
+    fetchMessages<HistoryMessage[]>(sessionParam)
       .then((data) => {
         setMessages(
           data.map((m) => ({
@@ -54,7 +128,7 @@ export default function ChatPage() {
       })
       .catch(() => {})
       .finally(() => setLoadingHistory(false));
-  }, []);
+  }, [sessionParam]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -80,6 +154,7 @@ export default function ChatPage() {
     setStreaming(true);
 
     const assistantId = crypto.randomUUID();
+    streamingMsgIdRef.current = assistantId;
     setMessages((prev) => [
       ...prev,
       { id: assistantId, role: "assistant", content: "", timestamp: new Date() },
@@ -108,6 +183,8 @@ export default function ChatPage() {
       const decoder = new TextDecoder();
       let accumulated = "";
       let sql = "";
+      let steps: string[] = [];
+      let firstTokenSeen = false;
 
       if (reader) {
         while (true) {
@@ -123,7 +200,17 @@ export default function ChatPage() {
 
             try {
               const parsed = JSON.parse(data);
-              if (parsed.type === "token") {
+              if (parsed.type === "step") {
+                steps = [...steps, parsed.content];
+              } else if (parsed.type === "token") {
+                if (!firstTokenSeen) {
+                  firstTokenSeen = true;
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId ? { ...m, stepsOpen: false } : m
+                    )
+                  );
+                }
                 accumulated += parsed.content;
               } else if (parsed.type === "sql") {
                 sql = parsed.content;
@@ -138,7 +225,13 @@ export default function ChatPage() {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, content: accumulated, sql: sql || undefined }
+                ? {
+                    ...m,
+                    content: accumulated,
+                    sql: sql || undefined,
+                    steps: steps.length > 0 ? steps : undefined,
+                    stepsOpen: m.stepsOpen ?? true,
+                  }
                 : m
             )
           );
@@ -163,6 +256,7 @@ export default function ChatPage() {
         )
       );
     } finally {
+      streamingMsgIdRef.current = null;
       setStreaming(false);
     }
   }
@@ -248,13 +342,21 @@ export default function ChatPage() {
                       : "border border-[var(--card-border)] bg-white text-[var(--text-primary)]"
                   }`}
                 >
-                  {msg.role === "assistant" && !msg.content && streaming ? (
+                  {msg.role === "assistant" && !msg.content && !msg.steps && streaming ? (
                     <div className="flex items-center gap-2 text-[var(--text-muted)]">
                       <Loader2 size={14} className="animate-spin" />
                       <span>Thinking...</span>
                     </div>
                   ) : (
                     <>
+                      {msg.steps && msg.steps.length > 0 && (
+                        <StepsPanel
+                          steps={msg.steps}
+                          isOpen={msg.stepsOpen ?? false}
+                          isStreaming={streaming && msg.id === streamingMsgIdRef.current}
+                          onToggle={() => toggleSteps(msg.id)}
+                        />
+                      )}
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                       {msg.sql && (
                         <button
@@ -323,5 +425,13 @@ export default function ChatPage() {
         </p>
       </form>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense>
+      <ChatPageInner />
+    </Suspense>
   );
 }

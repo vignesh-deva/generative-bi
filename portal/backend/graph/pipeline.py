@@ -1,26 +1,31 @@
 """
 LangGraph v2 pipeline — orchestrates the NL -> SQL -> Insight agent workflow.
 
-4-stage pipeline:
+5-stage pipeline:
   Stage 0: Fetch chat history from MongoDB
+  Stage 0B: Query Rewriter — resolve follow-ups into standalone queries
   Stage 1: Pre-processing — Guardrails + Classifier + RAG (parallel fan-out)
            Routing: analytics -> continue | non-analytics -> Response Agent -> exit
   Stage 1B: Context Enrichment — Schema Linker (+ Semantic Layer)
   Stage 2: SQL Generation — SQL Agent (with Decomposer + Sub-query Generator)
-  Stage 3: Validation + Self-repair — Dry-run -> Execute -> Logic Check
+  Stage 3: Validation + Self-repair — Dry-run -> Execute -> Logic Check (agentic)
            Error path: Error Classifier -> Correction Agent -> retry
   Stage 4: Response Synthesis — Insight Agent -> SSE stream
 
-Non-analytics path: 3 LLM calls (Guardrails + Classifier + Response Agent)
-Analytics path: ~9 LLM calls across all stages
+Non-analytics path: 4 LLM calls (Rewriter + Guardrails + Classifier + Response Agent)
+Analytics path: ~10 LLM calls across all stages
 """
 
 from __future__ import annotations
 
+import logging
 from typing import TypedDict, Literal
 
 from langgraph.graph import StateGraph, END
 
+logger = logging.getLogger(__name__)
+
+from agents.rewrite_agent import rewrite_query
 from agents.classifier import classify
 from agents.guardrails import check_guardrails
 from agents.rag_agent import retrieve_examples
@@ -89,6 +94,16 @@ async def history_node(state: PipelineState) -> PipelineState:
     return {"chat_history": history}
 
 
+# ── Stage 0B: Query Rewriter ────────────────────────────────────
+
+async def rewrite_node(state: PipelineState) -> PipelineState:
+    rewritten = await rewrite_query(
+        state["query"],
+        chat_history=state.get("chat_history"),
+    )
+    return {"query": rewritten}
+
+
 # ── Stage 1: Pre-processing (parallel) ──────────────────────────
 
 async def classify_node(state: PipelineState) -> PipelineState:
@@ -121,10 +136,13 @@ async def router_node(state: PipelineState) -> PipelineState:
 def route_after_fanin(state: PipelineState) -> str:
     """Route after parallel fan-out merges."""
     if not state.get("guardrail_passed", True):
+        logger.info("routing=non_analytics reason=guardrail_blocked")
         return "non_analytics"
     intent = state.get("intent", "analytics")
     if intent in ("chitchat", "history", "ambiguous"):
+        logger.info("routing=non_analytics reason=intent_%s", intent)
         return "non_analytics"
+    logger.info("routing=analytics")
     return "analytics"
 
 
@@ -185,6 +203,7 @@ async def dry_run_node(state: PipelineState) -> PipelineState:
 def route_after_dry_run(state: PipelineState) -> str:
     if state.get("dry_run_passed", False):
         return "passed"
+    logger.info("dry_run routing to error_classifier")
     return "failed"
 
 
@@ -200,6 +219,7 @@ async def error_classify_node(state: PipelineState) -> PipelineState:
 
 async def correction_node(state: PipelineState) -> PipelineState:
     retries = state.get("dry_run_retries", 0) + 1
+    logger.info("correction attempt dry_run_retry=%d/%d", retries, MAX_SQL_RETRIES)
     corrected = await correct_sql(
         query=state["query"],
         sql=state.get("sql_query", ""),
@@ -211,7 +231,9 @@ async def correction_node(state: PipelineState) -> PipelineState:
 
 
 def route_after_correction(state: PipelineState) -> str:
-    if state.get("dry_run_retries", 0) >= MAX_SQL_RETRIES:
+    retries = state.get("dry_run_retries", 0)
+    if retries >= MAX_SQL_RETRIES:
+        logger.warning("max dry_run retries reached (%d), proceeding to execute", retries)
         return "max_retries"
     return "retry"
 
@@ -221,8 +243,10 @@ def route_after_correction(state: PipelineState) -> str:
 async def execute_node(state: PipelineState) -> PipelineState:
     try:
         result = await run_query(state["sql_query"])
+        logger.info("query executed — rows=%d", result.get("row_count", 0))
         return {"query_result": result}
     except Exception as e:
+        logger.error("query execution failed: %s", e)
         return {"query_error": str(e)}
 
 
@@ -253,6 +277,10 @@ def route_after_logic(state: PipelineState) -> str:
 async def logic_error_to_correction_node(state: PipelineState) -> PipelineState:
     """Convert logic error into a correction attempt."""
     retries = state.get("logic_retries", 0) + 1
+    logger.info(
+        "logic correction attempt logic_retry=%d/%d feedback=%s",
+        retries, MAX_SQL_RETRIES, state.get("logic_feedback", "")[:120],
+    )
     corrected = await correct_sql(
         query=state["query"],
         sql=state.get("sql_query", ""),
@@ -289,6 +317,7 @@ def build_pipeline() -> StateGraph:
 
     # ── Nodes ─────────────────────────────────────────────────
     graph.add_node("fetch_history", history_node)
+    graph.add_node("query_rewriter", rewrite_node)
     graph.add_node("classifier", classify_node)
     graph.add_node("guardrails", guardrails_node)
     graph.add_node("rag", rag_node)
@@ -307,10 +336,13 @@ def build_pipeline() -> StateGraph:
     # ── Stage 0: fetch chat history first ─────────────────────
     graph.add_edge("__start__", "fetch_history")
 
-    # ── Stage 1: parallel fan-out from history ────────────────
-    graph.add_edge("fetch_history", "classifier")
-    graph.add_edge("fetch_history", "guardrails")
-    graph.add_edge("fetch_history", "rag")
+    # ── Stage 0B: resolve follow-ups into standalone queries ──
+    graph.add_edge("fetch_history", "query_rewriter")
+
+    # ── Stage 1: parallel fan-out from rewriter ───────────────
+    graph.add_edge("query_rewriter", "classifier")
+    graph.add_edge("query_rewriter", "guardrails")
+    graph.add_edge("query_rewriter", "rag")
 
     # ── Fan-in: all three converge at router node ─────────────
     graph.add_edge("classifier", "router")

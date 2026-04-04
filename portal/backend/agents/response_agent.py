@@ -8,9 +8,13 @@ Generates appropriate responses for:
   - history: summarizes or answers based on chat history
 """
 
+import logging
+
 from openai import AsyncOpenAI
 
 from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
+
+logger = logging.getLogger(__name__)
 from config.semantic_layer import SEMANTIC_LAYER
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
@@ -92,4 +96,6 @@ async def generate_response(
         max_tokens=300,
     )
 
-    return response.choices[0].message.content.strip()
+    text = response.choices[0].message.content.strip()
+    logger.info("intent=%s response_chars=%d", intent, len(text))
+    return text

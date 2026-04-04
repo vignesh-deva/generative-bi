@@ -7,10 +7,14 @@ Uses LLM to match query concepts to table names, then pulls
 schema + semantic context for only the relevant tables.
 """
 
+import logging
+
 from openai import AsyncOpenAI
 
 from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
-from agents.tools.schema_tools import list_tables, pull_schema
+
+logger = logging.getLogger(__name__)
+from agents.tools.schema_tools import list_tables, pull_schema, pull_value_samples
 from agents.tools.semantic_tools import get_semantic_context
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
@@ -67,9 +71,15 @@ async def link_schema(query: str) -> dict:
 
     # Fallback: if LLM returned nothing useful, use all available tables
     if not linked_tables:
+        logger.warning("LLM returned no valid tables (raw=%r), falling back to all %d tables", raw, len(all_tables))
         linked_tables = all_tables
 
+    logger.info("linked_tables=%s query=%.80s", linked_tables, query)
+
     schema_context = await pull_schema(linked_tables)
+    value_context = await pull_value_samples(linked_tables)
+    if value_context:
+        schema_context = schema_context + "\n" + value_context
     semantic_context = get_semantic_context(linked_tables)
 
     return {

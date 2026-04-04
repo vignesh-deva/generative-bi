@@ -3,9 +3,9 @@ Chat endpoint — accepts a natural language query and streams
 the agent pipeline response as Server-Sent Events (SSE).
 
 SSE event format:
+  data: {"type": "step", "content": "Classifying intent"}
   data: {"type": "token", "content": "..."}
   data: {"type": "sql", "content": "SELECT ..."}
-  data: {"type": "status", "content": "classifying..."}
   data: {"type": "error", "content": "..."}
   data: [DONE]
 """
@@ -26,6 +26,25 @@ from graph.pipeline import pipeline
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
+# Maps LangGraph node names to human-readable step labels.
+# Nodes absent from this dict (fetch_history, router) emit no step event.
+STEP_LABELS: dict[str, str] = {
+    "query_rewriter":   "Resolving query",
+    "classifier":       "Classifying intent",
+    "guardrails":       "Checking safety",
+    "rag":              "Retrieving examples",
+    "schema_linker":    "Linking schema",
+    "sql_agent":        "Generating SQL",
+    "dry_run":          "Validating syntax",
+    "error_classifier": "Diagnosing error",
+    "correction_agent": "Correcting SQL",
+    "execute":          "Executing query",
+    "logic_check":      "Checking logic",
+    "logic_correction": "Refining logic",
+    "insight_agent":    "Synthesizing insight",
+    "response_agent":   "Generating response",
+}
+
 
 class ChatRequest(BaseModel):
     query: str
@@ -40,6 +59,7 @@ def sse_event(data: dict | str) -> str:
 @router.post("")
 async def chat(req: ChatRequest):
     session_id = req.session_id or str(uuid.uuid4())
+    logger.info("session=%s query=%.120s", session_id, req.query)
 
     existing = await chat_sessions().find_one({"session_id": session_id})
     if not existing:
@@ -64,12 +84,21 @@ async def chat(req: ChatRequest):
     )
 
     async def event_stream():
-        yield sse_event({"type": "status", "content": "Processing your query..."})
+        result: dict = {}
+        response_text = ""
+        sql_query = None
 
         try:
-            result = await pipeline.ainvoke(
-                {"query": req.query, "session_id": session_id}
-            )
+            async for chunk in pipeline.astream(
+                {"query": req.query, "session_id": session_id},
+                stream_mode="updates",
+            ):
+                for node_name, node_update in chunk.items():
+                    if isinstance(node_update, dict):
+                        result.update(node_update)
+                    label = STEP_LABELS.get(node_name)
+                    if label:
+                        yield sse_event({"type": "step", "content": label})
 
             response_text = result.get("response", "")
             sql_query = result.get("sql_query")
@@ -78,19 +107,15 @@ async def chat(req: ChatRequest):
                 yield sse_event({"type": "sql", "content": sql_query})
 
             if response_text:
-                # Stream the response word by word for a typing effect
-                words = response_text.split(" ")
-                for word in words:
+                for word in response_text.split(" "):
                     yield sse_event({"type": "token", "content": word + " "})
             else:
-                yield sse_event({
-                    "type": "token",
-                    "content": "I wasn't able to generate a response for that query. Please try rephrasing.",
-                })
-                response_text = "I wasn't able to generate a response for that query."
+                fallback = "I wasn't able to generate a response for that query. Please try rephrasing."
+                yield sse_event({"type": "token", "content": fallback})
+                response_text = fallback
 
-        except Exception as e:
-            logger.exception("Pipeline error for session %s", session_id)
+        except Exception:
+            logger.exception("pipeline error session=%s", session_id)
             response_text = "An error occurred while processing your query. Please try again."
             sql_query = None
             yield sse_event({"type": "error", "content": response_text})
@@ -112,6 +137,12 @@ async def chat(req: ChatRequest):
             {"$set": {"updated_at": datetime.now(timezone.utc)}},
         )
 
+        logger.info(
+            "session=%s done sql=%s response_chars=%d",
+            session_id,
+            "yes" if sql_query else "no",
+            len(response_text),
+        )
         yield sse_event("[DONE]")
 
     return StreamingResponse(

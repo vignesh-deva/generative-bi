@@ -1,7 +1,15 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+
+# ── Logging setup ────────────────────────────────────────────────
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.dashboard import router as dashboard_router

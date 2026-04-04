@@ -7,9 +7,13 @@ off-limits requests (DML, DDL, PII extraction), and other unsafe inputs.
 Returns (passed: bool, reason: str).
 """
 
+import logging
+
 from openai import AsyncOpenAI
 
 from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
+
+logger = logging.getLogger(__name__)
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 
@@ -30,6 +34,7 @@ Only flag genuinely unsafe queries. Normal analytics questions about sales, reve
 
 async def check_guardrails(query: str) -> tuple[bool, str]:
     if len(query) > 2000:
+        logger.warning("blocked — query too long (%d chars)", len(query))
         return False, "Query blocked: input too long (max 2000 characters)"
 
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(domain=DOMAIN_DESCRIPTION)
@@ -46,6 +51,8 @@ async def check_guardrails(query: str) -> tuple[bool, str]:
 
     result = response.choices[0].message.content.strip()
     if result.strip().upper() == "SAFE":
+        logger.info("passed")
         return True, "passed"
     reason = result.replace("UNSAFE:", "").strip() if "UNSAFE:" in result.upper() else result
+    logger.warning("blocked — reason=%s", reason)
     return False, reason
