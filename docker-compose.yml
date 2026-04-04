@@ -1,6 +1,6 @@
 services:
   portal-frontend:
-    build: ./portal/frontend
+    build: ./user_portal/frontend
     ports:
       - "3000:3000"
     environment:
@@ -9,11 +9,11 @@ services:
       - portal-backend
 
   portal-backend:
-    build: ./portal/backend
+    build: ./user_portal/backend
     ports:
       - "8000:8000"
     env_file:
-      - ./portal/backend/.env
+      - ./user_portal/backend/.env
     environment:
       - POSTGRES_URI=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - MONGODB_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/?authSource=admin
@@ -24,7 +24,7 @@ services:
         condition: service_started
 
   ops-frontend:
-    build: ./ops/frontend
+    build: ./ops_portal/frontend
     ports:
       - "3001:3001"
     environment:
@@ -33,11 +33,11 @@ services:
       - ops-backend
 
   ops-backend:
-    build: ./ops/backend
+    build: ./ops_portal/backend
     ports:
       - "8001:8001"
     env_file:
-      - ./ops/backend/.env
+      - ./ops_portal/backend/.env
     environment:
       - POSTGRES_URI=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - MONGODB_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/?authSource=admin

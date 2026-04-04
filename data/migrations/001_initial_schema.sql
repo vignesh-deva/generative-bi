@@ -160,4 +160,4 @@ CREATE INDEX IF NOT EXISTS idx_fewshot_embedding ON fewshot_examples
     USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10);
 
 -- NOTE: Chat sessions, messages, and dashboard requests are stored in MongoDB.
--- See portal/backend/db/mongo.py for collection definitions.
+-- See user_portal/backend/db/mongo.py for collection definitions.

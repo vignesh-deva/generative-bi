@@ -77,7 +77,7 @@ The LLM and embedding API provider runs externally — not managed by Compose.
 
 ```
 generative-bi/
-├── portal/                              # User-facing application
+├── user_portal/                         # User-facing application
 │   ├── frontend/                        # Next.js + Tailwind (port 3000)
 │   │   └── src/
 │   │       ├── app/                     # App router pages
@@ -121,7 +121,7 @@ generative-bi/
 │       └── config/
 │           └── settings.py              # LLM_MODEL, LLM_MODEL_SMALL, EMBEDDING_MODEL, DB URIs
 │
-├── ops/                                 # Operations center application
+├── ops_portal/                          # Operations center application
 │   ├── frontend/                        # Next.js + Tailwind (port 3001)
 │   │   └── src/
 │   │       ├── app/
@@ -280,14 +280,14 @@ For working on individual services without rebuilding Docker images.
 **Prerequisites:** PostgreSQL (with pgvector extension) and MongoDB running locally. Copy and configure `.env` files before starting:
 
 ```bash
-cp .env.example portal/backend/.env
-cp ops/backend/.env.example ops/backend/.env
+cp .env.example user_portal/backend/.env
+cp ops_portal/backend/.env.example ops_portal/backend/.env
 # Edit each .env with your local DB URIs and LLM settings
 ```
 
 #### Portal Backend
 ```bash
-cd portal/backend
+cd user_portal/backend
 python -m venv venv && source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
@@ -301,21 +301,21 @@ python db/seed_fewshots.py
 
 #### Portal Frontend
 ```bash
-cd portal/frontend
+cd user_portal/frontend
 npm install
 npm run dev          # starts on :3000
 ```
 
 #### Ops Backend
 ```bash
-cd ops/backend
+cd ops_portal/backend
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8001
 ```
 
 #### Ops Frontend
 ```bash
-cd ops/frontend
+cd ops_portal/frontend
 npm install
 npm run dev          # starts on :3001
 ```
@@ -331,7 +331,7 @@ The test suite has two layers with different purposes and run frequencies.
 Tests the LangGraph graph routing, retry loops, error handling, and guardrail short-circuiting. All LLM calls and DB calls are mocked. These are deterministic and fast — run them on every commit.
 
 ```bash
-cd portal/backend
+cd user_portal/backend
 python -m pytest tests/test_pipeline.py -v
 ```
 
@@ -355,7 +355,7 @@ Tests that the individual agents and the full pipeline produce correct output wh
 Enable by setting `RUN_EVAL=1`:
 
 ```bash
-cd portal/backend
+cd user_portal/backend
 
 # Run the full eval suite
 RUN_EVAL=1 python -m pytest tests/eval/ -v
@@ -386,7 +386,7 @@ RUN_EVAL=1 python -m pytest tests/eval/test_pipeline_e2e.py -v   # full pipeline
 ### Running both suites
 
 ```bash
-cd portal/backend
+cd user_portal/backend
 
 # Unit tests only (default, CI-safe)
 python -m pytest tests/test_pipeline.py -v

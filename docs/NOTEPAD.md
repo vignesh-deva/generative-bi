@@ -8,14 +8,14 @@ A running log of decisions, next steps, and open questions for the Generative BI
 
 ### Completed — Scaffolding & Infrastructure
 - [x] HLD alignment — LangGraph, MongoDB, Docker, ops portal
-- [x] Domain-grouped folder restructure — `portal/` (FE+BE), `ops/` (FE+BE)
+- [x] Domain-grouped folder restructure — `user_portal/` (FE+BE), `ops_portal/` (FE+BE)
 - [x] Replace SQLite + FAISS with PostgreSQL + pgvector
 - [x] Docker Compose — 6 services (portal-fe, portal-be, ops-fe, ops-be, postgres, mongodb)
 - [x] Migrate schema to PostgreSQL syntax; add pgvector `fewshot_examples` table
 - [x] Initialize both frontends with `create-next-app` (Next.js + Tailwind, ports 3000 + 3001)
 - [x] PostgreSQL connection pool (`asyncpg`) + read-only `execute_query()` for SQL Agent
 - [x] MongoDB connection (`motor`) + collection definitions + indexes
-- [x] Wired lifecycle events into `portal/backend/main.py` (pool init, index creation, teardown)
+- [x] Wired lifecycle events into `user_portal/backend/main.py` (pool init, index creation, teardown)
 - [x] Rewrite `seed.py` for PostgreSQL — 60 products, 150 retailers, 832 orders, 178k sales records
 - [x] `verify.py` — 33 automated checks (row counts, integrity, analytical queries), all passing
 - [x] Username/password auth on PostgreSQL and MongoDB via `.env` / Docker Compose `${VAR}` substitution
@@ -112,7 +112,7 @@ A running log of decisions, next steps, and open questions for the Generative BI
 | Business data | PostgreSQL | Proper DB server, scales from dev to prod, no file-locking across containers |
 | Vector store | pgvector (PostgreSQL extension) | Native vector search in same DB as business data, eliminates separate FAISS service |
 | Deployment | Docker Compose | 6 services, named volumes for persistence |
-| Folder structure | Domain-grouped | `portal/` (user-facing FE+BE), `ops/` (operations FE+BE) |
+| Folder structure | Domain-grouped | `user_portal/` (user-facing FE+BE), `ops_portal/` (operations FE+BE) |
 | Ops portal | Separate FE + BE | Clean separation, independent access control |
 | LLM | Model-agnostic via API | Any OpenAI-compatible endpoint — configured via `.env` |
 | DB auth | Username/password via `.env` | Credentials in `.env`, substituted into Docker Compose via `${VAR}` |
@@ -122,7 +122,7 @@ A running log of decisions, next steps, and open questions for the Generative BI
 |----------|--------------|-----|
 | SQLite for business data | PostgreSQL | Future-proofing — proper server, no file-sharing issues, pgvector bonus |
 | FAISS for vector store | pgvector | Consolidates into PostgreSQL, one fewer technology to manage |
-| Flat folder structure | Domain-grouped (`portal/`, `ops/`) | Clearer ownership boundaries, related FE+BE live together |
+| Flat folder structure | Domain-grouped (`user_portal/`, `ops_portal/`) | Clearer ownership boundaries, related FE+BE live together |
 | Ollama-specific LLM config | Any OpenAI-compatible API | Not tied to a specific provider |
 
 ---

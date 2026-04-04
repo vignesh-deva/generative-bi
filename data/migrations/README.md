@@ -4,14 +4,14 @@
 
 ## Overview
 
-These SQL files are automatically applied by the PostgreSQL Docker container on first boot via `docker-entrypoint-initdb.d`. They run in filename order. Seeding (mock data) is handled separately by `portal/backend/db/seed.py`.
+These SQL files are automatically applied by the PostgreSQL Docker container on first boot via `docker-entrypoint-initdb.d`. They run in filename order. Seeding (mock data) is handled separately by `user_portal/backend/db/seed.py`.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `001_initial_schema.sql` | Creates all tables, indexes, and the pgvector extension |
-| `002_seed_data.sql` | Reserved placeholder — empty. FMCG data is seeded manually via `portal/backend/db/seed.py` |
+| `002_seed_data.sql` | Reserved placeholder — empty. FMCG data is seeded manually via `user_portal/backend/db/seed.py` |
 
 ## Schema Summary
 
