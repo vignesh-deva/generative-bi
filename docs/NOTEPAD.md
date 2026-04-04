@@ -71,7 +71,7 @@ A running log of decisions, next steps, and open questions for the Generative BI
 ### Completed — v2 Pipeline Implementation (2026-03-27, branch: feat/e2e-wiring)
 - [x] Add `LLM_MODEL_SMALL` + `MAX_SQL_RETRIES` + `DOMAIN_DESCRIPTION` to `config/settings.py`
 - [x] Create `agents/tools/` — `schema_tools.py`, `rag_tools.py`, `semantic_tools.py`, `sql_tools.py`, `history_tools.py`
-- [x] Implement Schema Linker agent (replaces full schema dump with targeted linking)
+- [x] Implement Schema Agent (replaces full schema dump with targeted linking + value samples)
 - [x] Implement Semantic Layer — moved to `config/semantic_layer.py` (metrics, join paths, business rules, known values)
 - [x] Implement Classifier (intents: analytics / chitchat / history / ambiguous) — terms derived from semantic layer
 - [x] Implement Response Agent (chitchat, history, blocked, ambiguous — context from semantic layer)
@@ -79,7 +79,6 @@ A running log of decisions, next steps, and open questions for the Generative BI
 - [x] Implement SQL Agent with Decomposer + Sub-query Generator sub-agents (RAG fewshots as exemplars)
 - [x] Implement EXPLAIN dry-run validation (`sql_tools.dry_run_explain`)
 - [x] Implement Error Classifier (no tools) + Correction Agent (with schema/sample/explain tools)
-- [x] Implement Logic Check agent
 - [x] Rewrite `graph/pipeline.py` for v2 (4 stages, fan-out, self-repair, chat history fetch)
 - [x] Wire v2 pipeline into `api/chat.py` — `pipeline.ainvoke()` + SSE streaming
 - [x] Choose embedding model → `text-embedding-3-small` (OpenAI), set in `.env`
@@ -88,38 +87,19 @@ A running log of decisions, next steps, and open questions for the Generative BI
 - [x] End-to-end verified: chat → SSE → pipeline → PostgreSQL → insight → streamed response
 - [x] Agents made domain-agnostic: hardcoded FMCG references replaced with `DOMAIN_DESCRIPTION` + semantic layer injection
 
-### Up Next — Manual Testing & Portal Integration
-- [ ] **[YOU]** Manual E2E test — see testing checklist below
-- [ ] Connect portal frontend chat page to live backend (verify SSE renders correctly in UI)
-- [ ] Connect portal frontend dashboard page to `/api/dashboard` endpoints
-- [ ] Add `DOMAIN_DESCRIPTION` to `portal/backend/.env` and `.env.example`
-- [ ] Merge `feat/e2e-wiring` → `develop` after manual testing passes
-- [ ] Ops portal — wire feedback thumbs up/down from chat UI to MongoDB
-- [ ] Power BI export — format and integration approach TBD
-- [ ] Auth/access control for ops portal — TBD
+### Completed — v2.2 Pipeline Refinements (2026-04-04, branch: feat/e2e-wiring)
+- [x] Add Query Rewriter agent — resolves follow-up references into standalone queries before fan-out
+- [x] Upgrade Logic Check → Validation Agent — agentic tool-calling loop (get_current_date, lookup_column, get_schema, get_join_info, run_test_query); single-shot fallback
+- [x] Schema Agent appends value samples to schema context — SQL Agent uses exact entity names
+- [x] SQL Agent injects today's date into system prompt
+- [x] Add `lookup_column` to `schema_tools.py` — type-aware (distinct values / stats / date range)
+- [x] Add collapsible StepsPanel to chat UI — shows pipeline steps with spinner; auto-collapses on first token
+- [x] Fix session switching — `useSearchParams` + `sessionParam` dependency
+- [x] Add structured logging across all agents
 
-### Manual Testing Checklist (for you to run)
-```
-cd portal/backend
-docker compose up postgres mongodb -d   # start DBs
-./venv/Scripts/python.exe -m uvicorn main:app --reload --port 8000
-```
-
-**API tests (curl):**
-- [ ] Analytics: `curl -s -X POST http://localhost:8000/api/chat -H "Content-Type: application/json" -d '{"query": "What is the total revenue by zone?"}' --no-buffer`
-  - Expected: status → sql → tokens → [DONE]
-- [ ] Analytics (gross margin): same with `"Which category has the highest gross margin?"`
-  - Expected: correct SQL with JOIN sales+products+categories
-- [ ] Chitchat: `"Hello, what can you help me with?"` — Expected: no SQL event, friendly reply
-- [ ] Ambiguous: `"Tell me about sales"` — Expected: clarifying question (no SQL)
-- [ ] Guardrails blocked: `"DROP TABLE sales"` — Expected: polite refusal, no SQL
-- [ ] Session continuity: send two queries with same `session_id`, second query references first — Expected: follow-up resolved correctly
-- [ ] Health: `curl http://localhost:8000/health` — Expected: `{"status":"ok"}`
-
-**Frontend (if running):**
-- [ ] Chat page renders SSE tokens progressively
-- [ ] SQL block appears in chat after analytics query
-- [ ] Session saved and visible in Recent/History page
+### Up Next
+- [ ] Raise PR for `feat/e2e-wiring` → `main`, review and fix PR comments
+- [ ] **Next feature: Request a Dashboard** — business users submit a request to the BI team from the portal chat page
 
 ---
 

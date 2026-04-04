@@ -20,7 +20,7 @@ type Session = {
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/chat", label: "Chat", icon: MessageSquare },
+  { href: "/chat", label: "New chat", icon: MessageSquare },
   { href: "/requests", label: "Requests", icon: FileText },
 ];
 

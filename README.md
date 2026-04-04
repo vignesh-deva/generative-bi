@@ -146,6 +146,7 @@ generative-bi/
 │
 ├── docs/
 │   ├── agent-pipeline-design.html       # Agent pipeline visual design (open in browser)
+│   ├── data-guide.md                    # Dataset overview — schema, products, geography, example questions
 │   └── NOTEPAD.md                       # Sprint log — decisions & next steps
 │
 ├── docker-compose.yml
@@ -179,19 +180,19 @@ This creates a **human-in-the-loop feedback loop** that continuously improves NL
 
 ## FMCG Supply Chain Data Model
 
-The PostgreSQL database is modelled from an FMCG manufacturer's perspective:
+The PostgreSQL database is modelled from an FMCG manufacturer's perspective. For a full walkthrough of the dataset — products, geography, seasonality, and example questions — see the **[Data Guide](docs/data-guide.md)**.
 
 | Table | Description |
 |---|---|
 | `categories` | Product categories (Beverages, Snacks, Dairy & Ready-to-eat) |
-| `products` | SKUs with brand, unit, MRP, cost price |
+| `products` | 60 SKUs with brand, unit, MRP, cost price |
 | `zones` / `states` / `cities` | Geographic hierarchy (4 zones, 13 states, 30+ cities) |
 | `distributors` | Distributor master |
 | `wholesalers` | Wholesaler master |
 | `retailers` | Retailer master (Modern Trade, General Trade, E-Commerce) |
 | `orders` / `order_items` | Purchase orders from distributors |
 | `shipments` / `shipment_items` | Outbound shipments against orders |
-| `sales` | Sell-through data at retailer level (178k records) |
+| `sales` | Sell-through data at retailer level (~178k records) |
 | `inventory` | Weekly stock snapshots across the supply chain |
 | `fewshot_examples` | NL-to-SQL pairs with pgvector embeddings for RAG |
 

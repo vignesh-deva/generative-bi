@@ -18,6 +18,8 @@ type Message = {
   timestamp: Date;
 };
 
+// ── Steps panel ───────────────────────────────────────────────────
+
 function StepsPanel({
   steps,
   isOpen,
@@ -29,6 +31,15 @@ function StepsPanel({
   isStreaming: boolean;
   onToggle: () => void;
 }) {
+  const listRef = useRef<HTMLUListElement>(null);
+
+  // Auto-scroll to latest step whenever a new one arrives or panel opens
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [steps.length, isOpen]);
+
   if (!isOpen) {
     return (
       <button
@@ -40,26 +51,43 @@ function StepsPanel({
       </button>
     );
   }
+
   return (
-    <div className="mb-2 rounded-lg border border-[var(--card-border)] bg-slate-50 px-3 py-2">
+    <div className="mb-3 rounded-lg border border-[var(--card-border)] bg-slate-50 px-3 py-2">
       <button
         onClick={onToggle}
         className="flex w-full items-center justify-between text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
       >
-        <span className="text-[10px] uppercase tracking-wide">Steps</span>
+        <span className="text-[10px] uppercase tracking-wide text-slate-400">
+          Reasoning
+        </span>
         <ChevronDown size={11} />
       </button>
-      <ul className="mt-2 space-y-1.5">
+
+      {/* Fixed height + scroll + auto-scroll to latest */}
+      <ul
+        ref={listRef}
+        className="mt-2 max-h-36 space-y-1.5 overflow-y-auto pr-1 scrollbar-thin"
+      >
         {steps.map((step, i) => {
           const isActive = isStreaming && i === steps.length - 1;
+          const isDone = !isActive;
           return (
             <li key={i} className="flex items-center gap-2 text-[11px]">
               {isActive ? (
                 <Loader2 size={10} className="shrink-0 animate-spin text-blue-500" />
               ) : (
-                <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
+                <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-300" />
               )}
-              <span className={isActive ? "text-blue-600" : "text-[var(--text-muted)]"}>
+              <span
+                className={
+                  isActive
+                    ? "font-medium text-blue-600"
+                    : isDone
+                    ? "text-slate-400"
+                    : "text-[var(--text-muted)]"
+                }
+              >
                 {step}
               </span>
             </li>
@@ -70,6 +98,8 @@ function StepsPanel({
   );
 }
 
+// ── Types ─────────────────────────────────────────────────────────
+
 type HistoryMessage = {
   role: "user" | "assistant";
   content: string;
@@ -78,6 +108,8 @@ type HistoryMessage = {
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+// ── Chat page ─────────────────────────────────────────────────────
 
 function ChatPageInner() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -94,20 +126,17 @@ function ChatPageInner() {
 
   function toggleSteps(msgId: string) {
     setMessages((prev) =>
-      prev.map((m) => m.id === msgId ? { ...m, stepsOpen: !m.stepsOpen } : m)
+      prev.map((m) => (m.id === msgId ? { ...m, stepsOpen: !m.stepsOpen } : m))
     );
   }
 
-  // Load session history whenever the ?session= param changes (including on mount)
+  // Load session history whenever the ?session= param changes
   useEffect(() => {
     if (!sessionParam) {
-      // New chat — reset state
       sessionIdRef.current = null;
       setMessages([]);
       return;
     }
-
-    // Avoid re-fetching if we're already on this session (e.g. after sending a message)
     if (sessionIdRef.current === sessionParam) return;
 
     sessionIdRef.current = sessionParam;
@@ -164,15 +193,11 @@ function ChatPageInner() {
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: text,
-          session_id: sessionIdRef.current,
-        }),
+        body: JSON.stringify({ query: text, session_id: sessionIdRef.current }),
       });
 
       if (!res.ok) throw new Error(`API error: ${res.status}`);
 
-      // Capture session ID from the first message in a new conversation
       const returnedSessionId = res.headers.get("X-Session-Id");
       if (returnedSessionId && !sessionIdRef.current) {
         sessionIdRef.current = returnedSessionId;
@@ -272,8 +297,8 @@ function ChatPageInner() {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-          <p className="text-sm text-[var(--text-muted)]">Loading conversation...</p>
+          <div className="h-7 w-7 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+          <p className="text-sm text-[var(--text-muted)]">Loading conversation…</p>
         </div>
       </div>
     );
@@ -282,7 +307,7 @@ function ChatPageInner() {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-b border-[var(--card-border)] pb-4">
+      <div className="border-b border-[var(--card-border)] pb-3">
         <h1 className="text-xl font-bold text-[var(--text-primary)]">Chat</h1>
         <p className="mt-0.5 text-sm text-[var(--text-muted)]">
           Ask questions about your FMCG supply chain data
@@ -290,22 +315,22 @@ function ChatPageInner() {
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto py-4">
+      <div className="flex-1 overflow-y-auto py-5">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50">
-              <Sparkles size={28} className="text-blue-500" />
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50">
+              <Sparkles size={24} className="text-blue-500" />
             </div>
             <div>
-              <p className="text-lg font-semibold text-[var(--text-primary)]">
+              <p className="text-base font-semibold text-[var(--text-primary)]">
                 Ask anything about your data
               </p>
-              <p className="mt-1 max-w-sm text-sm text-[var(--text-muted)]">
-                I can query your FMCG supply chain database, generate insights,
-                and help you understand trends.
+              <p className="mt-1 max-w-xs text-sm text-[var(--text-muted)]">
+                Query your FMCG supply chain database, surface insights,
+                and explore trends in plain English.
               </p>
             </div>
-            <div className="mt-2 flex flex-wrap justify-center gap-2">
+            <div className="mt-1 flex flex-wrap justify-center gap-2">
               {[
                 "What are the top selling products?",
                 "Show monthly revenue trend",
@@ -313,7 +338,10 @@ function ChatPageInner() {
               ].map((suggestion) => (
                 <button
                   key={suggestion}
-                  onClick={() => setInput(suggestion)}
+                  onClick={() => {
+                    setInput(suggestion);
+                    setTimeout(() => inputRef.current?.focus(), 0);
+                  }}
                   className="rounded-lg border border-[var(--card-border)] bg-white px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
                 >
                   {suggestion}
@@ -322,7 +350,8 @@ function ChatPageInner() {
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          /* Constrain message column width for readability */
+          <div className="mx-auto w-full max-w-3xl space-y-5 px-1">
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -331,21 +360,31 @@ function ChatPageInner() {
                 }`}
               >
                 {msg.role === "assistant" && (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50">
-                    <Bot size={16} className="text-blue-600" />
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 mt-0.5">
+                    <Bot size={14} className="text-blue-600" />
                   </div>
                 )}
+
                 <div
-                  className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                  className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                     msg.role === "user"
                       ? "bg-blue-600 text-white"
-                      : "border border-[var(--card-border)] bg-white text-[var(--text-primary)]"
+                      : "border border-[var(--card-border)] bg-white text-[var(--text-primary)] shadow-sm"
                   }`}
                 >
-                  {msg.role === "assistant" && !msg.content && !msg.steps && streaming ? (
-                    <div className="flex items-center gap-2 text-[var(--text-muted)]">
-                      <Loader2 size={14} className="animate-spin" />
-                      <span>Thinking...</span>
+                  {/* Thinking indicator — three staggered dots */}
+                  {msg.role === "assistant" &&
+                  !msg.content &&
+                  !msg.steps &&
+                  streaming ? (
+                    <div className="flex items-center gap-1 py-1">
+                      {[0, 150, 300].map((delay) => (
+                        <span
+                          key={delay}
+                          className="h-2 w-2 rounded-full bg-slate-300 animate-bounce"
+                          style={{ animationDelay: `${delay}ms` }}
+                        />
+                      ))}
                     </div>
                   ) : (
                     <>
@@ -363,7 +402,7 @@ function ChatPageInner() {
                           onClick={() =>
                             setShowSql(showSql === msg.id ? null : msg.id)
                           }
-                          className={`mt-2 flex items-center gap-1.5 text-xs ${
+                          className={`mt-2.5 flex items-center gap-1.5 text-xs ${
                             msg.role === "user"
                               ? "text-blue-200 hover:text-white"
                               : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
@@ -381,9 +420,10 @@ function ChatPageInner() {
                     </>
                   )}
                 </div>
+
                 {msg.role === "user" && (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600">
-                    <User size={16} className="text-white" />
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-600 mt-0.5">
+                    <User size={14} className="text-white" />
                   </div>
                 )}
               </div>
@@ -393,36 +433,38 @@ function ChatPageInner() {
         )}
       </div>
 
-      {/* Input area */}
+      {/* Input bar — constrained width, compact */}
       <form
         onSubmit={handleSubmit}
-        className="border-t border-[var(--card-border)] pt-4"
+        className="border-t border-[var(--card-border)] pt-3 pb-1"
       >
-        <div className="flex items-end gap-3 rounded-xl border border-[var(--card-border)] bg-white p-2 shadow-sm transition-shadow focus-within:border-blue-300 focus-within:shadow-md">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask a question about your data..."
-            rows={1}
-            className="max-h-32 min-h-[36px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || streaming}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600"
-          >
-            {streaming ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
-              <Send size={16} />
-            )}
-          </button>
+        <div className="mx-auto w-full max-w-3xl">
+          <div className="flex items-end gap-2 rounded-xl border border-[var(--card-border)] bg-white px-4 py-3 shadow-sm transition-shadow focus-within:border-blue-300 focus-within:shadow-md">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask a question about your data…"
+              rows={1}
+              className="max-h-36 min-h-[52px] flex-1 resize-none bg-transparent py-1 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || streaming}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600"
+            >
+              {streaming ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Send size={14} />
+              )}
+            </button>
+          </div>
+          <p className="mt-1.5 text-center text-[11px] text-[var(--text-muted)]">
+            AI-generated — verify important figures before acting on them.
+          </p>
         </div>
-        <p className="mt-2 text-center text-[11px] text-[var(--text-muted)]">
-          Responses are AI-generated. Always verify important data.
-        </p>
       </form>
     </div>
   );

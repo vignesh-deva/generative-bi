@@ -54,11 +54,12 @@ The pipeline is a 4-stage LangGraph workflow with 12 agents:
 
 ```
 Query → Fetch Chat History (MongoDB)
-      → [Guardrails | Classifier | RAG] (parallel fan-out)
+      → Query Rewriter (resolves follow-up references; skips if no history)
+      → [Guardrails | Classifier | RAG | Schema Agent] (parallel fan-out)
       → Router (fan-in)
           ├── non-analytics → Response Agent → SSE → END
-          └── analytics → Schema Linker → SQL Agent → Dry-Run
-              ├── passes → Execute → Logic Check → Insight Agent → SSE → END
+          └── analytics → Semantic Layer → SQL Agent → Dry-Run
+              ├── passes → Execute → Validation Agent → Insight Agent → SSE → END
               └── fails  → Error Classifier → Correction Agent → retry (max 3)
 ```
 
@@ -66,17 +67,18 @@ Query → Fetch Chat History (MongoDB)
 
 | Agent | Model | Tools | Purpose |
 |-------|-------|-------|---------|
+| Query Rewriter | small | none | Resolves follow-up references into a standalone query; skips if no history |
 | Guardrails | small | none | LLM-based safety check (prompt injection, SQL injection, PII) |
 | Classifier | small | none | Intent: analytics / chitchat / history / ambiguous |
 | RAG Agent | — | pgvector | Few-shot NL-to-SQL retrieval by cosine similarity |
+| Schema Agent | small | pull_schema, value_samples | Selects relevant tables; appends value samples for exact entity names |
 | Response Agent | small | fetch_chat_history | Handles blocked, ambiguous, chitchat, history |
-| Schema Linker | small | list_tables, pull_schema | Selects relevant tables for the query |
 | Semantic Layer | — | — | Static knowledge base in `config/`: metrics, join paths, business rules |
-| SQL Agent | large | decompose, generate | Decomposer sub-agent + adapt/single/multi strategies |
+| SQL Agent | large | decompose, generate | Decomposer sub-agent + adapt/single/multi strategies; injects today's date |
 | Dry-Run Validator | — | EXPLAIN | PostgreSQL EXPLAIN validation (no LLM cost) |
 | Error Classifier | small | none | Categorizes: syntax / schema / logic / runtime |
 | Correction Agent | large | pull_schema, value_samples, dry_run_explain | Targeted SQL fix |
-| Logic Check | small | none | Verifies query results answer the question |
+| Validation Agent | small | get_current_date, lookup_column, get_schema, get_join_info, run_test_query | Agentic logic check (tool loop, max 3 rounds); single-shot fallback |
 | Insight Agent | large | none | Generates NL business insight from results |
 
 ## Databases
@@ -123,7 +125,7 @@ curl -s -X POST http://localhost:8000/api/chat \
   -d '{"query": "What is the total revenue by zone?"}' \
   --no-buffer
 
-# Non-analytics — Response Agent path (3 LLM calls)
+# Non-analytics — Response Agent path (4 LLM calls; 3 if no prior session)
 curl -s -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"query": "Hello, what can you help me with?"}' \
@@ -157,7 +159,8 @@ SSE events in the response:
 
 | Date | Change |
 |------|--------|
-| 2026-03-27 | Move semantic_layer to config/; derive all domain context from semantic layer + DOMAIN_DESCRIPTION setting; fix hardcoded fallback table list in schema linker |
+| 2026-04-04 | Add Query Rewriter; upgrade Logic Check → Validation Agent (agentic tool loop); Schema Agent appends value samples; SQL Agent injects today's date |
+| 2026-03-27 | Move semantic_layer to config/; derive all domain context from semantic layer + DOMAIN_DESCRIPTION setting |
 | 2026-03-25 | v2 pipeline: 12 agents, 4 stages, semantic layer, schema linker, response agent, self-repair loop |
 | 2026-03-18 | Cleared stale TODOs; added seed/verify commands; updated databases table |
 | 2026-03-15 | Initial README — LangGraph, MongoDB, Docker architecture |
