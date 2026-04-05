@@ -13,11 +13,12 @@ from datetime import date
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION, LLM_REQUEST_TIMEOUT
+from agents.tools.text_utils import strip_markdown_fences
 
 logger = logging.getLogger(__name__)
 
-_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=LLM_REQUEST_TIMEOUT)
 
 RAG_SIMILARITY_THRESHOLD = 0.85
 
@@ -168,9 +169,7 @@ async def _generate_single_sql(
         max_tokens=1024,
     )
 
-    sql = response.choices[0].message.content.strip()
-    if sql.startswith("```"):
-        sql = sql.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    sql = strip_markdown_fences(response.choices[0].message.content)
     logger.info("generated SQL (single):\n%s", sql)
     return sql
 
@@ -216,9 +215,7 @@ async def _adapt_matched_sql(
         max_tokens=1024,
     )
 
-    sql = response.choices[0].message.content.strip()
-    if sql.startswith("```"):
-        sql = sql.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    sql = strip_markdown_fences(response.choices[0].message.content)
     logger.info("generated SQL (adapt):\n%s", sql)
     return sql
 

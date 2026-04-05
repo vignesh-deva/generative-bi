@@ -354,7 +354,12 @@ async def test_dry_run_two_failures_then_success(mocks):
 
 
 async def test_max_retries_exhausted(mocks):
-    """All dry-run attempts fail -> proceed to execute after MAX_SQL_RETRIES."""
+    """All dry-run attempts fail -> proceed to execute after MAX_SQL_RETRIES.
+
+    With the budget checked BEFORE each correction call, the final corrected
+    SQL is still dry-run-validated before we bail out — so we see one more
+    dry_run than corrections.
+    """
     mocks.validate_dry_run.return_value = (False, "persistent syntax error")
 
     with patch(f"{MODULE}.MAX_SQL_RETRIES", 3):
@@ -362,8 +367,9 @@ async def test_max_retries_exhausted(mocks):
             "Complex cross-zone 90-day rolling inventory analysis"
         )
 
-    # 3 dry-run failures, 3 corrections, then execute despite failures
-    assert mocks.validate_dry_run.call_count == 3
+    # 4 dry-run attempts (initial + 3 post-correction), 3 corrections,
+    # then execute despite the last dry-run still failing.
+    assert mocks.validate_dry_run.call_count == 4
     assert mocks.correct_sql.call_count == 3
     assert mocks.classify_error.call_count == 3
     mocks.run_query.assert_called_once()

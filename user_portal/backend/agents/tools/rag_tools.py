@@ -8,10 +8,10 @@ Tools:
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, EMBEDDING_MODEL
+from config.settings import LLM_BASE_URL, LLM_API_KEY, EMBEDDING_MODEL, LLM_REQUEST_TIMEOUT
 from db.database import get_pool
 
-_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=LLM_REQUEST_TIMEOUT)
 
 
 async def get_embedding(text: str) -> list[float]:

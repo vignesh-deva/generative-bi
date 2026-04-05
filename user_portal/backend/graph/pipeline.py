@@ -45,6 +45,9 @@ class PipelineState(TypedDict, total=False):
     # Input
     query: str
     session_id: str
+    # When True, insight_node skips its LLM call on the analytics success
+    # path so the caller can stream insight tokens themselves.
+    stream_insight: bool
 
     # Chat history (fetched from MongoDB)
     chat_history: list[dict]
@@ -201,9 +204,23 @@ async def dry_run_node(state: PipelineState) -> PipelineState:
 
 
 def route_after_dry_run(state: PipelineState) -> str:
+    """Route after every dry-run.
+
+    If the dry-run passed, go to execute. If it failed, gate the correction
+    branch BEHIND the retry-budget check so we never waste an LLM call once
+    the budget is exhausted. When budget is exhausted we execute anyway —
+    the read-only transaction is the ultimate safety net.
+    """
     if state.get("dry_run_passed", False):
         return "passed"
-    logger.info("dry_run routing to error_classifier")
+    retries = state.get("dry_run_retries", 0)
+    if retries >= MAX_SQL_RETRIES:
+        logger.warning(
+            "dry_run failed and retry budget exhausted (%d/%d) — executing anyway",
+            retries, MAX_SQL_RETRIES,
+        )
+        return "max_retries"
+    logger.info("dry_run failed — routing to error_classifier (retry %d/%d)", retries, MAX_SQL_RETRIES)
     return "failed"
 
 
@@ -228,14 +245,6 @@ async def correction_node(state: PipelineState) -> PipelineState:
         tables=state.get("linked_tables", []),
     )
     return {"sql_query": corrected, "dry_run_retries": retries}
-
-
-def route_after_correction(state: PipelineState) -> str:
-    retries = state.get("dry_run_retries", 0)
-    if retries >= MAX_SQL_RETRIES:
-        logger.warning("max dry_run retries reached (%d), proceeding to execute", retries)
-        return "max_retries"
-    return "retry"
 
 
 # ── Stage 3: Execute + Logic Check ───────────────────────────────
@@ -275,7 +284,12 @@ def route_after_logic(state: PipelineState) -> str:
 
 
 async def logic_error_to_correction_node(state: PipelineState) -> PipelineState:
-    """Convert logic error into a correction attempt."""
+    """Convert logic error into a correction attempt.
+
+    Resets dry_run_retries so the freshly-corrected SQL gets its own syntactic
+    repair budget when it loops back through dry_run. Without this, earlier
+    dry-run retries would starve the logic-corrected query's repair budget.
+    """
     retries = state.get("logic_retries", 0) + 1
     logger.info(
         "logic correction attempt logic_retry=%d/%d feedback=%s",
@@ -288,7 +302,11 @@ async def logic_error_to_correction_node(state: PipelineState) -> PipelineState:
         error_category="logic",
         tables=state.get("linked_tables", []),
     )
-    return {"sql_query": corrected, "logic_retries": retries}
+    return {
+        "sql_query": corrected,
+        "logic_retries": retries,
+        "dry_run_retries": 0,
+    }
 
 
 # ── Stage 4: Insight Agent ───────────────────────────────────────
@@ -299,6 +317,11 @@ async def insight_node(state: PipelineState) -> PipelineState:
             "response": f"I couldn't execute the query: {state['query_error']}",
             "insight": "",
         }
+
+    # If the caller wants to stream the insight themselves, skip the LLM
+    # call here — state.query_result is already populated.
+    if state.get("stream_insight"):
+        return {"insight": "", "response": ""}
 
     insight = await generate_insight(
         query=state["query"],
@@ -365,20 +388,22 @@ def build_pipeline() -> StateGraph:
     # ── Stage 2 -> Stage 3: Dry-run ─────────────────────────
     graph.add_edge("sql_agent", "dry_run")
 
-    # ── Dry-run routing ──────────────────────────────────────
+    # ── Dry-run routing (budget check lives here now) ────────
+    # "failed" only fires when retries < MAX_SQL_RETRIES; once the budget is
+    # exhausted we skip the LLM correction call entirely and execute anyway.
     graph.add_conditional_edges(
         "dry_run",
         route_after_dry_run,
-        {"passed": "execute", "failed": "error_classifier"},
+        {
+            "passed": "execute",
+            "failed": "error_classifier",
+            "max_retries": "execute",
+        },
     )
 
-    # ── Error path: classify -> correct -> retry or bail ─────
+    # ── Error path: classify -> correct -> dry_run (loop) ────
     graph.add_edge("error_classifier", "correction_agent")
-    graph.add_conditional_edges(
-        "correction_agent",
-        route_after_correction,
-        {"retry": "dry_run", "max_retries": "execute"},
-    )
+    graph.add_edge("correction_agent", "dry_run")
 
     # ── Execute -> check for errors ──────────────────────────
     graph.add_conditional_edges(

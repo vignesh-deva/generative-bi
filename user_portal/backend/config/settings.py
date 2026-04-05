@@ -11,6 +11,8 @@ LLM_API_KEY = os.getenv("LLM_API_KEY", "ollama")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 MAX_SQL_RETRIES = int(os.getenv("MAX_SQL_RETRIES", "3"))
 DOMAIN_DESCRIPTION = os.getenv("DOMAIN_DESCRIPTION", "FMCG supply chain analytics")
+LLM_REQUEST_TIMEOUT = float(os.getenv("LLM_REQUEST_TIMEOUT", "60"))
+PIPELINE_TIMEOUT_SECONDS = float(os.getenv("PIPELINE_TIMEOUT_SECONDS", "180"))
 
 # PostgreSQL
 POSTGRES_URI = os.getenv("POSTGRES_URI", "postgresql://genbi:genbi@localhost:5432/genbi")

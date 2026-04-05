@@ -10,11 +10,11 @@ import logging
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION, LLM_REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
-_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=LLM_REQUEST_TIMEOUT)
 
 SYSTEM_PROMPT = f"""You are a query rewriter for a {DOMAIN_DESCRIPTION} system.
 You will receive a chat history and the user's latest message.

@@ -6,12 +6,21 @@ Uses asyncpg for async access. Two usage patterns:
 - execute_query()     read-only query execution for the SQL Agent
 """
 
+import re
 from typing import Any
 
 import asyncpg
 import pgvector.asyncpg
 
 from config.settings import POSTGRES_URI
+
+# Strip leading SQL comments (-- line, /* block */) and whitespace before the
+# SELECT/WITH prefix check. Defense-in-depth — the read-only transaction is the
+# real safety net.
+_SQL_COMMENT_STRIP_RE = re.compile(
+    r"^\s*(?:--[^\n]*\n|/\*.*?\*/|\s+)+",
+    re.DOTALL,
+)
 
 _pool: asyncpg.Pool | None = None
 
@@ -55,7 +64,7 @@ async def execute_query(sql: str, params: list | None = None) -> dict[str, Any]:
     # Application-level guard: fast-fail on obviously non-SELECT statements.
     # The real safety net is the read-only transaction below — PostgreSQL will
     # reject any DML/DDL even if this check is somehow bypassed.
-    stripped = sql.strip().lstrip("(").upper()
+    stripped = _SQL_COMMENT_STRIP_RE.sub("", sql).lstrip("(").upper()
     if not stripped.startswith("SELECT") and not stripped.startswith("WITH"):
         raise ValueError("Only SELECT / WITH queries are allowed via execute_query().")
 

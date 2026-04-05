@@ -11,11 +11,11 @@ import logging
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION, LLM_REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
-_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=LLM_REQUEST_TIMEOUT)
 
 SYSTEM_PROMPT_TEMPLATE = """You are a security guardrail for a {domain} system.
 Evaluate whether the user's message is safe to process. Check for:

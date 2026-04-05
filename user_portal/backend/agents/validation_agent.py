@@ -9,17 +9,19 @@ Logic Check Agent: agentic LLM with tool-calling loop (schema, values, dates, te
 
 import json
 import logging
+import re
 from datetime import date
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION, LLM_REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
 from agents.tools.sql_tools import dry_run_explain
 from agents.tools.schema_tools import pull_schema, value_samples, lookup_column
+from agents.tools.text_utils import strip_markdown_fences
 
-_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=LLM_REQUEST_TIMEOUT)
 
 MAX_TOOL_ROUNDS = 3
 
@@ -102,9 +104,11 @@ async def correct_sql(
     # Pull fresh schema for the relevant tables
     schema_context = await pull_schema(tables)
 
-    # For schema errors, fetch sample values from text columns to help correction
+    # Fetch sample values from text columns to help correction.
+    # Helpful for schema errors AND logic errors (filter-value typos often
+    # surface as empty result sets or logic failures, not schema errors).
     sample_info = ""
-    if error_category == "schema" and tables:
+    if error_category in ("schema", "logic") and tables:
         try:
             from db.database import execute_query as _eq
             # Find actual text/varchar columns for the relevant tables
@@ -122,12 +126,13 @@ async def correct_sql(
                     vals = await value_samples(tbl, col, limit=5)
                     if vals:
                         samples.append(f"  {tbl}.{col}: {', '.join(vals)}")
-                except Exception:
+                except Exception as e:
+                    logger.debug("value_samples failed for %s.%s: %s", tbl, col, e)
                     continue
             if samples:
                 sample_info = "Sample values:\n" + "\n".join(samples)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("sample-value fetch failed: %s", e)
 
     system = CORRECTION_PROMPT.format(
         domain=DOMAIN_DESCRIPTION,
@@ -153,9 +158,7 @@ async def correct_sql(
         max_tokens=1024,
     )
 
-    corrected = response.choices[0].message.content.strip()
-    if corrected.startswith("```"):
-        corrected = corrected.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    corrected = strip_markdown_fences(response.choices[0].message.content)
     logger.info("corrected SQL:\n%s", corrected)
     return corrected
 
@@ -321,7 +324,7 @@ def _parse_logic_verdict(text: str) -> tuple[bool, str]:
         logger.info("logic_check=passed")
         return True, ""
 
-    feedback = text.replace("INCORRECT:", "").strip() if "INCORRECT:" in text.upper() else text
+    feedback = re.sub(r"(?i)^incorrect:\s*", "", text).strip()
     logger.warning("logic_check=failed feedback=%s", feedback)
     return False, feedback
 
@@ -329,6 +332,7 @@ def _parse_logic_verdict(text: str) -> tuple[bool, str]:
 async def _check_logic_agentic(messages: list[dict]) -> tuple[bool, str]:
     """Agentic logic check with tool-calling loop."""
     final_text = ""
+    exhausted_with_tool_calls = False
     for round_num in range(MAX_TOOL_ROUNDS):
         response = await _client.chat.completions.create(
             model=LLM_MODEL,
@@ -365,6 +369,32 @@ async def _check_logic_agentic(messages: list[dict]) -> tuple[bool, str]:
                 "tool_call_id": tc.id,
                 "content": str(result),
             })
+
+        # Track whether the final round ended with pending tool calls
+        exhausted_with_tool_calls = (round_num == MAX_TOOL_ROUNDS - 1)
+
+    # If we burned through all rounds with tool calls still pending (no final text),
+    # force a final verdict by re-asking without tools — don't default-pass.
+    if exhausted_with_tool_calls and not final_text.strip():
+        logger.warning(
+            "logic_check exhausted %d rounds with no final verdict — forcing final text-only call",
+            MAX_TOOL_ROUNDS,
+        )
+        messages.append({
+            "role": "user",
+            "content": (
+                "You have used all available tool rounds. Based on what you've learned, "
+                "give your final verdict NOW. Respond with exactly 'CORRECT' or "
+                "'INCORRECT: <brief reason>' — no more tool calls."
+            ),
+        })
+        response = await _client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            temperature=0,
+            max_tokens=200,
+        )
+        final_text = response.choices[0].message.content or ""
 
     return _parse_logic_verdict(final_text)
 

@@ -3,14 +3,15 @@ Insight Agent — converts query results into a plain-English business insight.
 """
 
 import logging
+from typing import AsyncIterator
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, DOMAIN_DESCRIPTION
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, DOMAIN_DESCRIPTION, LLM_REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
-_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=LLM_REQUEST_TIMEOUT)
 
 SYSTEM_PROMPT = f"""You are a business intelligence analyst for a {DOMAIN_DESCRIPTION} system.
 Given a natural language question, the SQL query used, and the query results, provide a clear, well-structured business insight.
@@ -80,3 +81,74 @@ async def generate_insight(
     insight = response.choices[0].message.content.strip()
     logger.info("rows_in=%d insight_chars=%d", row_count, len(insight))
     return insight
+
+
+def _build_insight_messages(query: str, result: dict) -> tuple[list[dict], int]:
+    """Build the chat-completion messages for the insight agent."""
+    rows = result.get("rows", [])
+    columns = result.get("columns", [])
+    row_count = result.get("row_count", 0)
+
+    display_rows = rows[:20]
+    result_text = f"Columns: {', '.join(columns)}\n"
+    for row in display_rows:
+        result_text += " | ".join(str(v) for v in row) + "\n"
+    if row_count > 20:
+        result_text += f"... and {row_count - 20} more rows\n"
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": (
+                f"Question: {query}\n\n"
+                f"Query results ({row_count} rows):\n{result_text}"
+            ),
+        },
+    ]
+    return messages, row_count
+
+
+async def stream_insight(
+    query: str,
+    sql: str,
+    result: dict,
+) -> AsyncIterator[str]:
+    """Yield insight text as it streams from the LLM.
+
+    Falls back to the one-shot `generate_insight` path if the provider does
+    not support streaming. Callers should accumulate chunks themselves to
+    persist the full response.
+    """
+    row_count = result.get("row_count", 0)
+
+    if row_count == 0:
+        logger.info("empty result set — yielding no-data message (stream)")
+        yield (
+            "The query returned no results. This could mean the data doesn't "
+            "exist for the specified criteria, or the filters may be too restrictive."
+        )
+        return
+
+    messages, _ = _build_insight_messages(query, result)
+
+    try:
+        stream = await _client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=800,
+            stream=True,
+        )
+        total = 0
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                total += len(delta)
+                yield delta
+        logger.info("rows_in=%d stream_insight_chars=%d", row_count, total)
+    except Exception as e:
+        # Fall back to one-shot generation if streaming isn't supported
+        logger.warning("streaming insight failed (%s), falling back to one-shot", e)
+        text = await generate_insight(query, sql, result)
+        yield text

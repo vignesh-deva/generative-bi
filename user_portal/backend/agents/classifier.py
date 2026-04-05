@@ -9,12 +9,12 @@ import logging
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION, LLM_REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
 from config.semantic_layer import SEMANTIC_LAYER
 
-_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=LLM_REQUEST_TIMEOUT)
 
 # Derive analytics-relevant terms from semantic layer at startup (no hardcoding)
 _metric_names = [m["name"].split("(")[0].strip() for m in SEMANTIC_LAYER.get("metrics", [])]
@@ -64,7 +64,7 @@ async def classify(query: str, chat_history: list[dict] | None = None) -> str:
         temperature=0,
         max_tokens=20,
     )
-    raw = response.choices[0].message.content.strip().lower().strip('"')
+    raw = response.choices[0].message.content.strip().lower().strip("\"'`")
     intent = raw if raw in ("analytics", "chitchat", "history", "ambiguous") else "analytics"
     if raw != intent:
         logger.warning("unexpected LLM response=%r, defaulting to analytics", raw)

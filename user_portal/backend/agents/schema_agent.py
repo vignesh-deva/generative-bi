@@ -11,13 +11,17 @@ import logging
 
 from openai import AsyncOpenAI
 
-from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION
+from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION, LLM_REQUEST_TIMEOUT
 
 logger = logging.getLogger(__name__)
 from agents.tools.schema_tools import list_tables, pull_schema, pull_value_samples
 from agents.tools.semantic_tools import get_semantic_context
 
-_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+# Cap fallback table count to keep the schema prompt within context budget
+# when the LLM returns no valid tables.
+MAX_FALLBACK_TABLES = 12
+
+_client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=LLM_REQUEST_TIMEOUT)
 
 SYSTEM_PROMPT = """You are a schema linking agent for a {domain} database.
 Given a user's natural language query and a list of available tables, identify which tables
@@ -69,10 +73,14 @@ async def link_schema(query: str) -> dict:
         if t.strip().lower() in all_tables
     ]
 
-    # Fallback: if LLM returned nothing useful, use all available tables
+    # Fallback: if LLM returned nothing useful, use a bounded prefix of the
+    # table list so the schema prompt stays within context budget.
     if not linked_tables:
-        logger.warning("LLM returned no valid tables (raw=%r), falling back to all %d tables", raw, len(all_tables))
-        linked_tables = all_tables
+        linked_tables = all_tables[:MAX_FALLBACK_TABLES]
+        logger.warning(
+            "LLM returned no valid tables (raw=%r), falling back to %d of %d tables",
+            raw, len(linked_tables), len(all_tables),
+        )
 
     logger.info("linked_tables=%s query=%.80s", linked_tables, query)
 
