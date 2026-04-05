@@ -25,7 +25,7 @@ In Docker, the `postgres` service mounts `./data/migrations` to `/docker-entrypo
 After the schema is applied, populate mock data by running the seed script:
 
 ```bash
-cd portal/backend
+cd user_portal/backend
 python -m db.seed
 ```
 

@@ -373,7 +373,7 @@
 <body>
 
 <h1>Agent Pipeline Design</h1>
-<p class="subtitle">NL &rarr; SQL &rarr; Insight &nbsp;&bull;&nbsp; Every module is an agent (LLM + tools) &nbsp;&bull;&nbsp; Generative BI for FMCG supply chain</p>
+<p class="subtitle">NL &rarr; SQL &rarr; Insight &nbsp;&bull;&nbsp; Every module is an agent (LLM + tools) &nbsp;&bull;&nbsp; Generative BI for FMCG supply chain &nbsp;&bull;&nbsp; v2.2</p>
 
 <!-- Legend -->
 <div class="legend">
@@ -392,7 +392,24 @@
       <div class="agent-name">Fetch Chat History</div>
       <div class="agent-sub">MongoDB</div>
       <div class="tools-row"><span class="tool-pill">fetch_chat_history</span></div>
-      <div style="font-size:10px;color:#888;margin-top:4px">Last N messages from session &rarr; injected into Classifier &amp; SQL Agent</div>
+      <div style="font-size:10px;color:#888;margin-top:4px">Last N messages from session &rarr; passed to Query Rewriter</div>
+    </div>
+  </div>
+
+  <div class="arrow">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ════════ STEP 0B: Query Rewriter ════════ -->
+  <div class="agents-row">
+    <div class="agent small" style="max-width:360px">
+      <div class="agent-name">Query Rewriter</div>
+      <div class="agent-sub">small model &bull; no tools</div>
+      <div style="font-size:10px;color:#6ee7a0;margin-top:6px">
+        Resolves follow-up references (pronouns, ellipsis) into a self-contained query<br>
+        <span style="color:#888">Skips the LLM call entirely when there is no chat history</span>
+      </div>
     </div>
   </div>
 
@@ -423,11 +440,12 @@
         </div>
       </div>
       <div class="agent small">
-        <div class="agent-name">Schema Linker Agent</div>
+        <div class="agent-name">Schema Agent</div>
         <div class="agent-sub">small model</div>
         <div class="tools-row">
           <span class="tool-pill">pull_schema</span>
         </div>
+        <div style="font-size:10px;color:#888;margin-top:4px">Appends value samples to schema context</div>
       </div>
     </div>
   </div>
@@ -588,9 +606,16 @@
         </div>
         <div class="arrow"><div class="arrow-line" style="height:12px"></div><div class="arrow-head"></div></div>
         <div class="agent small">
-          <div class="agent-name">Logic Check Agent</div>
-          <div class="agent-sub">small model</div>
-          <div class="tools-row"><span class="tool-pill">correct? / incorrect?</span></div>
+          <div class="agent-name">Validation Agent</div>
+          <div class="agent-sub">small model &bull; agentic tool loop (max 3 rounds)</div>
+          <div class="tools-row">
+            <span class="tool-pill">get_current_date</span>
+            <span class="tool-pill">lookup_column</span>
+            <span class="tool-pill">get_schema</span>
+            <span class="tool-pill">get_join_info</span>
+            <span class="tool-pill">run_test_query</span>
+          </div>
+          <div style="font-size:10px;color:#888;margin-top:4px">Falls back to single-shot if provider lacks function calling</div>
         </div>
       </div>
 
@@ -672,6 +697,12 @@
       <th>Tools</th>
     </tr>
     <tr>
+      <td>Query Rewriter</td>
+      <td><span class="model-small">small</span></td>
+      <td>Resolves follow-up references (pronouns, co-references, ellipsis) into a self-contained standalone query using recent chat history. Skips the LLM call entirely when there is no history.</td>
+      <td>none</td>
+    </tr>
+    <tr>
       <td>Guardrails</td>
       <td><span class="model-small">small</span></td>
       <td>LLM-based safety — prompt injection, SQL injection in NL, system prompt extraction</td>
@@ -696,10 +727,10 @@
       <td><code>search_fewshots</code> — pgvector cosine similarity</td>
     </tr>
     <tr>
-      <td>Schema Linker</td>
+      <td>Schema Agent</td>
       <td><span class="model-small">small</span></td>
-      <td>Pick relevant tables from full schema, fetch their column details</td>
-      <td><code>pull_schema</code> — information_schema query</td>
+      <td>Pick relevant tables from full schema, fetch their column details. Also appends value samples so the SQL Agent sees exact entity names at generation time.</td>
+      <td><code>pull_schema</code> — information_schema query + value samples</td>
     </tr>
     <tr>
       <td>Semantic Layer</td>
@@ -710,7 +741,7 @@
     <tr>
       <td>SQL Agent</td>
       <td><span class="model-large">large</span></td>
-      <td>Core SQL generation with CoT reasoning. RAG few-shot examples injected into prompt as exemplars.</td>
+      <td>Core SQL generation with CoT reasoning. RAG few-shot examples injected as exemplars. Receives today's date and value samples from Schema Agent — uses exact values rather than ILIKE guesses.</td>
       <td><code>decompose</code>, <code>generate_subquery</code></td>
     </tr>
     <tr>
@@ -738,10 +769,10 @@
       <td><code>pull_schema</code>, <code>value_samples</code>, <code>dry_run_explain</code></td>
     </tr>
     <tr>
-      <td>Logic Check</td>
+      <td>Validation Agent</td>
       <td><span class="model-small">small</span></td>
-      <td>Post-execution: does the SQL actually answer the question?</td>
-      <td>—</td>
+      <td>Post-execution logic check via agentic tool-calling loop (max 3 rounds). LLM verifies the SQL answers the question, checking dates, column values, join paths, and running test queries before rendering a verdict. Falls back to single-shot for providers without function calling.</td>
+      <td><code>get_current_date</code>, <code>lookup_column</code>, <code>get_schema</code>, <code>get_join_info</code>, <code>run_test_query</code></td>
     </tr>
     <tr>
       <td>Insight Agent</td>
@@ -794,55 +825,59 @@
   <div class="timing">
     <div class="timing-row">
       <div class="timing-label" style="color:#666">Fetch chat history <span style="color:#c89ef2">[MongoDB]</span></div>
-      <div class="timing-track"><div class="timing-bar dv" style="left:0%;width:3%"></div></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:0%;width:2%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Query Rewriter <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:2%;width:5%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Guardrails <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:7%;width:9%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Classifier <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:7%;width:9%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">RAG Agent <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:7%;width:9%"></div></div>
     </div>
     <div class="timing-row">
-      <div class="timing-label">Schema Linker <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
+      <div class="timing-label">Schema Agent <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:7%;width:9%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label" style="color:#666">Fan-in + route</div>
-      <div class="timing-track"><div class="timing-bar ct" style="left:13%;width:3%"></div></div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:16%;width:2%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Semantic Layer <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:16%;width:8%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:18%;width:7%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">SQL Agent <span class="model-large">[large]</span></div>
-      <div class="timing-track"><div class="timing-bar lg" style="left:24%;width:20%"></div></div>
+      <div class="timing-track"><div class="timing-bar lg" style="left:25%;width:19%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">EXPLAIN dry-run <span style="color:#c89ef2">[DB]</span></div>
-      <div class="timing-track"><div class="timing-bar dv" style="left:44%;width:5%"></div></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:44%;width:4%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Execute query <span style="color:#c89ef2">[DB]</span></div>
-      <div class="timing-track"><div class="timing-bar dv" style="left:49%;width:8%"></div></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:48%;width:7%"></div></div>
     </div>
     <div class="timing-row">
-      <div class="timing-label">Logic Check <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:57%;width:8%"></div></div>
+      <div class="timing-label">Validation Agent <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:55%;width:9%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Insight Agent <span class="model-large">[large]</span></div>
-      <div class="timing-track"><div class="timing-bar lg" style="left:65%;width:18%"></div></div>
+      <div class="timing-track"><div class="timing-bar lg" style="left:64%;width:18%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label" style="color:#666">SSE stream</div>
-      <div class="timing-track"><div class="timing-bar ct" style="left:83%;width:8%"></div></div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:82%;width:8%"></div></div>
     </div>
   </div>
 
@@ -850,35 +885,39 @@
   <div class="timing">
     <div class="timing-row">
       <div class="timing-label" style="color:#666">Fetch chat history <span style="color:#c89ef2">[MongoDB]</span></div>
-      <div class="timing-track"><div class="timing-bar dv" style="left:0%;width:3%"></div></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:0%;width:2%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Query Rewriter <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:2%;width:5%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Guardrails <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:7%;width:9%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Classifier <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:3%;width:10%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:7%;width:9%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label" style="color:#666">Route &rarr; exit</div>
-      <div class="timing-track"><div class="timing-bar ct" style="left:13%;width:3%"></div></div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:16%;width:2%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label">Response Agent <span class="model-small">[small]</span></div>
-      <div class="timing-track"><div class="timing-bar sm" style="left:16%;width:12%"></div></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:18%;width:12%"></div></div>
     </div>
     <div class="timing-row">
       <div class="timing-label" style="color:#666">SSE stream</div>
-      <div class="timing-track"><div class="timing-bar ct" style="left:28%;width:8%"></div></div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:30%;width:8%"></div></div>
     </div>
   </div>
 
   <div style="display:flex;justify-content:space-between;margin-top:8px;padding:0 220px 0 0">
     <div></div>
     <div style="font-size:11px;color:#666">
-      Analytics: <span class="model-small">7 small</span> + <span class="model-large">2 large</span> = 9 LLM calls (happy path) &nbsp;|&nbsp; Worst case (3 retries): 15<br>
-      Non-analytics: <span class="model-small">3 small</span> = 3 LLM calls
+      Analytics: <span class="model-small">8 small</span> + <span class="model-large">2 large</span> = 10 LLM calls (happy path) &nbsp;|&nbsp; Worst case (3 retries): 16<br>
+      Non-analytics: <span class="model-small">4 small</span> = 4 LLM calls &nbsp;&bull;&nbsp; Query Rewriter skipped when no chat history
     </div>
   </div>
 
@@ -924,21 +963,20 @@
   <!-- ── File Structure ── -->
   <h2>File Structure</h2>
   <div class="config-block" style="line-height:1.6">
-    portal/backend/<br>
+    user_portal/backend/<br>
     ├── agents/<br>
+    │&emsp;&emsp;├── rewrite_agent.py &emsp;&emsp;&emsp;<span class="comment"># [small] query rewriter — resolves follow-up references; skips if no history</span><br>
     │&emsp;&emsp;├── guardrails.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [small] LLM safety check — no tools</span><br>
     │&emsp;&emsp;├── classifier.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [small] intent (chitchat/history/analytics) + disambiguation — no tools</span><br>
     │&emsp;&emsp;├── response_agent.py &emsp;&emsp;&emsp;<span class="comment"># [small + tool] direct reply for chitchat + history intents</span><br>
     │&emsp;&emsp;├── rag_agent.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [small + tool] few-shot retrieval</span><br>
-    │&emsp;&emsp;├── schema_linker.py &emsp;&emsp;&emsp;<span class="comment"># [small + tool] table selection</span><br>
+    │&emsp;&emsp;├── schema_agent.py &emsp;&emsp;&emsp;&emsp;<span class="comment"># [small + tool] table selection + value samples</span><br>
     │&emsp;&emsp;├── semantic_layer.py &emsp;&emsp;&emsp;<span class="comment"># [small + tool] metric defs + rules</span><br>
-    │&emsp;&emsp;├── sql_agent.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [large + sub-agents] SQL generation (receives RAG fewshots)</span><br>
-    │&emsp;&emsp;├── error_classifier.py &emsp;&emsp;<span class="comment"># [small] error taxonomy — no tools</span><br>
-    │&emsp;&emsp;├── correction_agent.py &emsp;&emsp;<span class="comment"># [large + tools] targeted SQL fixes with schema access</span><br>
-    │&emsp;&emsp;├── logic_check.py &emsp;&emsp;&emsp;&emsp;<span class="comment"># [small] post-execution check</span><br>
+    │&emsp;&emsp;├── sql_agent.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [large + sub-agents] SQL generation (receives RAG fewshots + today's date)</span><br>
+    │&emsp;&emsp;├── validation_agent.py &emsp;&emsp;<span class="comment"># dry-run, error classifier, correction, logic check (agentic tool loop)</span><br>
     │&emsp;&emsp;├── insight_agent.py &emsp;&emsp;&emsp;<span class="comment"># [large] NL business insight</span><br>
     │&emsp;&emsp;└── tools/<br>
-    │&emsp;&emsp;&emsp;&emsp;&emsp;├── schema_tools.py &emsp;<span class="comment"># pull_schema(), get_table_summaries(), value_samples()</span><br>
+    │&emsp;&emsp;&emsp;&emsp;&emsp;├── schema_tools.py &emsp;<span class="comment"># pull_schema(), value_samples(), lookup_column() [type-aware]</span><br>
     │&emsp;&emsp;&emsp;&emsp;&emsp;├── rag_tools.py &emsp;&emsp;&emsp;<span class="comment"># search_fewshots()</span><br>
     │&emsp;&emsp;&emsp;&emsp;&emsp;├── semantic_tools.py <span class="comment"># lookup_metrics()</span><br>
     │&emsp;&emsp;&emsp;&emsp;&emsp;├── sql_tools.py &emsp;&emsp;&emsp;<span class="comment"># dry_run_explain(), execute_query()</span><br>

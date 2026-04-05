@@ -8,14 +8,14 @@ A running log of decisions, next steps, and open questions for the Generative BI
 
 ### Completed — Scaffolding & Infrastructure
 - [x] HLD alignment — LangGraph, MongoDB, Docker, ops portal
-- [x] Domain-grouped folder restructure — `portal/` (FE+BE), `ops/` (FE+BE)
+- [x] Domain-grouped folder restructure — `user_portal/` (FE+BE), `ops_portal/` (FE+BE)
 - [x] Replace SQLite + FAISS with PostgreSQL + pgvector
 - [x] Docker Compose — 6 services (portal-fe, portal-be, ops-fe, ops-be, postgres, mongodb)
 - [x] Migrate schema to PostgreSQL syntax; add pgvector `fewshot_examples` table
 - [x] Initialize both frontends with `create-next-app` (Next.js + Tailwind, ports 3000 + 3001)
 - [x] PostgreSQL connection pool (`asyncpg`) + read-only `execute_query()` for SQL Agent
 - [x] MongoDB connection (`motor`) + collection definitions + indexes
-- [x] Wired lifecycle events into `portal/backend/main.py` (pool init, index creation, teardown)
+- [x] Wired lifecycle events into `user_portal/backend/main.py` (pool init, index creation, teardown)
 - [x] Rewrite `seed.py` for PostgreSQL — 60 products, 150 retailers, 832 orders, 178k sales records
 - [x] `verify.py` — 33 automated checks (row counts, integrity, analytical queries), all passing
 - [x] Username/password auth on PostgreSQL and MongoDB via `.env` / Docker Compose `${VAR}` substitution
@@ -68,24 +68,38 @@ A running log of decisions, next steps, and open questions for the Generative BI
 - [x] Added `response_agent.py` + `history_tools.py` to file structure
 - [x] Non-analytics timing path added — 3 LLM calls (Guardrails + Classifier + Response Agent)
 
-### Up Next — Implement v2 Pipeline
-- [ ] Add `LLM_MODEL_SMALL` + `MAX_SQL_RETRIES` to `config/settings.py`
-- [ ] Create `agents/tools/` — `schema_tools.py`, `rag_tools.py`, `semantic_tools.py`, `sql_tools.py`, `history_tools.py`
-- [ ] Implement Schema Linker agent (replace full Schema Agent)
-- [ ] Implement Semantic Layer agent + static knowledge base
-- [ ] Implement Classifier + Disambiguator (intents: chitchat / history / analytics, no tools)
-- [ ] Implement Response Agent (direct reply for chitchat + history with MongoDB context)
-- [ ] Upgrade Guardrails to LLM-based (no tools)
-- [ ] Implement SQL Agent with Decomposer + Sub-query Generator sub-agents (RAG fewshots as exemplars)
-- [ ] Implement EXPLAIN dry-run validation (`sql_tools.dry_run_explain`)
-- [ ] Implement Error Classifier (no tools) + Correction Agent (with schema/sample/explain tools)
-- [ ] Implement Logic Check agent
-- [ ] Rewrite `graph/pipeline.py` for v2 (4 stages, new nodes, updated routing, chat history fetch)
-- [ ] Wire v2 pipeline into `api/chat.py` — replace placeholder with `pipeline.ainvoke()` + SSE streaming
-- [ ] Choose embedding model for RAG (e.g., `nomic-embed-text`, `text-embedding-3-small`)
-- [ ] Implement vector similarity search in RAG Agent (replace DB fallback with pgvector `<=>`)
-- [ ] Seed `fewshot_examples` with initial NL→SQL corpus (10-20 FMCG examples)
-- [ ] End-to-end test: chat UI → SSE → pipeline → PostgreSQL → insight → streamed response
+### Completed — v2 Pipeline Implementation (2026-03-27, branch: feat/e2e-wiring)
+- [x] Add `LLM_MODEL_SMALL` + `MAX_SQL_RETRIES` + `DOMAIN_DESCRIPTION` to `config/settings.py`
+- [x] Create `agents/tools/` — `schema_tools.py`, `rag_tools.py`, `semantic_tools.py`, `sql_tools.py`, `history_tools.py`
+- [x] Implement Schema Agent (replaces full schema dump with targeted linking + value samples)
+- [x] Implement Semantic Layer — moved to `config/semantic_layer.py` (metrics, join paths, business rules, known values)
+- [x] Implement Classifier (intents: analytics / chitchat / history / ambiguous) — terms derived from semantic layer
+- [x] Implement Response Agent (chitchat, history, blocked, ambiguous — context from semantic layer)
+- [x] Upgrade Guardrails to LLM-based (no tools)
+- [x] Implement SQL Agent with Decomposer + Sub-query Generator sub-agents (RAG fewshots as exemplars)
+- [x] Implement EXPLAIN dry-run validation (`sql_tools.dry_run_explain`)
+- [x] Implement Error Classifier (no tools) + Correction Agent (with schema/sample/explain tools)
+- [x] Rewrite `graph/pipeline.py` for v2 (4 stages, fan-out, self-repair, chat history fetch)
+- [x] Wire v2 pipeline into `api/chat.py` — `pipeline.ainvoke()` + SSE streaming
+- [x] Choose embedding model → `text-embedding-3-small` (OpenAI), set in `.env`
+- [x] Implement pgvector similarity search in RAG Agent — register codec via asyncpg `init`
+- [x] Seed `fewshot_examples` with 15 NL→SQL examples + OpenAI embeddings
+- [x] End-to-end verified: chat → SSE → pipeline → PostgreSQL → insight → streamed response
+- [x] Agents made domain-agnostic: hardcoded FMCG references replaced with `DOMAIN_DESCRIPTION` + semantic layer injection
+
+### Completed — v2.2 Pipeline Refinements (2026-04-04, branch: feat/e2e-wiring)
+- [x] Add Query Rewriter agent — resolves follow-up references into standalone queries before fan-out
+- [x] Upgrade Logic Check → Validation Agent — agentic tool-calling loop (get_current_date, lookup_column, get_schema, get_join_info, run_test_query); single-shot fallback
+- [x] Schema Agent appends value samples to schema context — SQL Agent uses exact entity names
+- [x] SQL Agent injects today's date into system prompt
+- [x] Add `lookup_column` to `schema_tools.py` — type-aware (distinct values / stats / date range)
+- [x] Add collapsible StepsPanel to chat UI — shows pipeline steps with spinner; auto-collapses on first token
+- [x] Fix session switching — `useSearchParams` + `sessionParam` dependency
+- [x] Add structured logging across all agents
+
+### Up Next
+- [ ] Raise PR for `feat/e2e-wiring` → `main`, review and fix PR comments
+- [ ] **Next feature: Request a Dashboard** — business users submit a request to the BI team from the portal chat page
 
 ---
 
@@ -98,7 +112,7 @@ A running log of decisions, next steps, and open questions for the Generative BI
 | Business data | PostgreSQL | Proper DB server, scales from dev to prod, no file-locking across containers |
 | Vector store | pgvector (PostgreSQL extension) | Native vector search in same DB as business data, eliminates separate FAISS service |
 | Deployment | Docker Compose | 6 services, named volumes for persistence |
-| Folder structure | Domain-grouped | `portal/` (user-facing FE+BE), `ops/` (operations FE+BE) |
+| Folder structure | Domain-grouped | `user_portal/` (user-facing FE+BE), `ops_portal/` (operations FE+BE) |
 | Ops portal | Separate FE + BE | Clean separation, independent access control |
 | LLM | Model-agnostic via API | Any OpenAI-compatible endpoint — configured via `.env` |
 | DB auth | Username/password via `.env` | Credentials in `.env`, substituted into Docker Compose via `${VAR}` |
@@ -108,7 +122,7 @@ A running log of decisions, next steps, and open questions for the Generative BI
 |----------|--------------|-----|
 | SQLite for business data | PostgreSQL | Future-proofing — proper server, no file-sharing issues, pgvector bonus |
 | FAISS for vector store | pgvector | Consolidates into PostgreSQL, one fewer technology to manage |
-| Flat folder structure | Domain-grouped (`portal/`, `ops/`) | Clearer ownership boundaries, related FE+BE live together |
+| Flat folder structure | Domain-grouped (`user_portal/`, `ops_portal/`) | Clearer ownership boundaries, related FE+BE live together |
 | Ollama-specific LLM config | Any OpenAI-compatible API | Not tied to a specific provider |
 
 ---
