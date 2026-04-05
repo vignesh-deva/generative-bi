@@ -45,3 +45,6 @@ async def create_indexes():
     await dashboard_requests().create_index("request_id", unique=True)
     await dashboard_requests().create_index("status")
     await dashboard_requests().create_index("created_at")
+    await dashboard_requests().create_index("updated_at")
+    await dashboard_requests().create_index("session_id", sparse=True)
+    await dashboard_requests().create_index("auto_close_eligible_at", sparse=True)

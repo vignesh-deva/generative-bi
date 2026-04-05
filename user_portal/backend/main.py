@@ -17,13 +17,14 @@ from api.chat import router as chat_router
 from api.history import router as history_router
 from api.requests import router as requests_router
 from db.database import get_pool, close_pool
-from db.mongo import close_client, create_indexes
+from db.mongo import close_client, create_indexes, migrate_dashboard_requests
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await get_pool()
     await create_indexes()
+    await migrate_dashboard_requests()
     yield
     await close_pool()
     await close_client()

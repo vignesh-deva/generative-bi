@@ -20,23 +20,185 @@ export async function fetchMessages<T>(sessionId: string): Promise<T> {
   return res.json();
 }
 
-export async function fetchRequests<T>(): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/requests`);
-  if (!res.ok) throw new Error(`Requests API error: ${res.status}`);
+// ── Dashboard request types ──────────────────────────────────────
+
+export type RequestStatus =
+  | "draft"
+  | "requested"
+  | "in-progress"
+  | "need additional details"
+  | "completed"
+  | "accepted"
+  | "request changes"
+  | "closed";
+
+export type ChatHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+  created_at?: string | null;
+};
+
+export type ChatContext = {
+  message_id: string;
+  question: string;
+  answer: string;
+  sql: string | null;
+  history: ChatHistoryMessage[];
+};
+
+export type RequestComment = {
+  comment_id: string;
+  author: string;
+  text: string;
+  type: "comment" | "status_change";
+  created_at: string;
+};
+
+export type StatusHistoryEntry = {
+  from: string | null;
+  to: string;
+  actor: "user" | "ops" | "system";
+  at: string;
+  note: string | null;
+};
+
+export type DashboardRequest = {
+  request_id: string;
+  session_id: string | null;
+  title: string;
+  description: string;
+  chat_context: ChatContext | null;
+  status: RequestStatus;
+  created_at: string;
+  updated_at: string;
+  submitted_at: string | null;
+  closed_at: string | null;
+  auto_close_eligible_at: string | null;
+  comments: RequestComment[];
+  status_history: StatusHistoryEntry[];
+};
+
+// ── Dashboard request endpoints ──────────────────────────────────
+
+async function jsonOrError<T>(res: Response, label: string): Promise<T> {
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = body?.detail ? `: ${body.detail}` : "";
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`${label} (${res.status})${detail}`);
+  }
   return res.json();
 }
 
-export async function createRequest(
-  title: string,
-  description?: string
-): Promise<{ id: string; status: string }> {
+export async function fetchRequests(): Promise<DashboardRequest[]> {
+  const res = await fetch(`${API_BASE}/api/requests`);
+  return jsonOrError(res, "Fetch requests failed");
+}
+
+export async function fetchRequest(id: string): Promise<DashboardRequest> {
+  const res = await fetch(`${API_BASE}/api/requests/${id}`);
+  return jsonOrError(res, "Fetch request failed");
+}
+
+export async function createDraft(payload: {
+  title: string;
+  description: string;
+  chat_context?: ChatContext | null;
+  session_id?: string | null;
+}): Promise<DashboardRequest> {
+  const res = await fetch(`${API_BASE}/api/requests/drafts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return jsonOrError(res, "Create draft failed");
+}
+
+export async function updateDraft(
+  id: string,
+  payload: { title?: string; description?: string }
+): Promise<DashboardRequest> {
+  const res = await fetch(`${API_BASE}/api/requests/drafts/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return jsonOrError(res, "Update draft failed");
+}
+
+export async function deleteDraft(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/requests/drafts/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Delete draft failed (${res.status})`);
+}
+
+export async function submitDraft(id: string): Promise<DashboardRequest> {
+  const res = await fetch(`${API_BASE}/api/requests/drafts/${id}/submit`, {
+    method: "POST",
+  });
+  return jsonOrError(res, "Submit draft failed");
+}
+
+export async function createRequest(payload: {
+  title: string;
+  description: string;
+  chat_context?: ChatContext | null;
+  session_id?: string | null;
+}): Promise<DashboardRequest> {
   const res = await fetch(`${API_BASE}/api/requests`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, description }),
+    body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error(`Create request error: ${res.status}`);
-  return res.json();
+  return jsonOrError(res, "Create request failed");
+}
+
+export async function addRequestComment(
+  id: string,
+  text: string
+): Promise<DashboardRequest> {
+  const res = await fetch(`${API_BASE}/api/requests/${id}/comments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  return jsonOrError(res, "Add comment failed");
+}
+
+export async function acceptRequest(
+  id: string,
+  note?: string
+): Promise<DashboardRequest> {
+  const res = await fetch(`${API_BASE}/api/requests/${id}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note: note ?? null }),
+  });
+  return jsonOrError(res, "Accept failed");
+}
+
+export async function requestChanges(
+  id: string,
+  note: string
+): Promise<DashboardRequest> {
+  const res = await fetch(`${API_BASE}/api/requests/${id}/request-changes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  });
+  return jsonOrError(res, "Request changes failed");
+}
+
+export async function closeRequest(id: string): Promise<DashboardRequest> {
+  const res = await fetch(`${API_BASE}/api/requests/${id}/close`, {
+    method: "POST",
+  });
+  return jsonOrError(res, "Close failed");
 }
 
 export async function checkHealth(): Promise<{ status: string }> {
