@@ -27,7 +27,7 @@ export default function LoginPage() {
         return;
       }
       const { token } = await res.json();
-      document.cookie = `auth_token=${token}; path=/; SameSite=Strict; max-age=${7 * 86400}`;
+      document.cookie = `ops_auth_token=${token}; path=/; SameSite=Strict; max-age=${7 * 86400}`;
       router.push("/");
     } catch {
       setError("Connection error. Is the backend running?");

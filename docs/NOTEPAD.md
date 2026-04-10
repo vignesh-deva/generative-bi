@@ -114,9 +114,12 @@ A running log of decisions, next steps, and open questions for the Generative BI
 - [x] Login pages for user portal (port 3000) and ops portal (port 3001)
 - [x] `logout()` helper clears cookie and redirects; logout button in both portal headers
 - [x] `PORTAL_USERNAME=testuser`, `PORTAL_PASSWORD=testpass`, `JWT_SECRET` added to root `.env` and all `.env.example` files; passed to Docker services via docker-compose
+- [x] Separate session cookies — user portal uses `auth_token`, ops portal uses `ops_auth_token` — sessions are fully independent
 
 ### Up Next
-- [ ] Raise PR for `feat/dashboard-request-v2` → `main`
+- [ ] Raise PR for `feat/dashboard-request-v2` → `main`, review and merge
+- [ ] Ops portal — Feedback page: wire up real actions (promote to RAG, mark reviewed, delete)
+- [ ] Ops portal — RAG Curation: update queries and curation workflow
 - [ ] Power BI export — format and integration approach TBD
 - [ ] Auth/access control hardening for production (separate ops vs user credentials, HTTPS-only cookies)
 

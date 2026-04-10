@@ -17,7 +17,7 @@ Operations Center application for the BI/dev team.
 | **Feedback** | `/feedback` | Review thumbs-up/down feedback on chat responses |
 | **RAG Curation** | `/rag` | Manage few-shot NL-to-SQL examples — add, review, curate for accuracy |
 
-The login page at `/login` is the unauthenticated entry point. All other routes redirect there if no valid JWT cookie is present.
+The login page at `/login` is the unauthenticated entry point. All other routes redirect there if no valid JWT cookie (`ops_auth_token`) is present. This session is independent of the User Portal — logging into one portal does not authenticate the other.
 
 ## Purpose
 

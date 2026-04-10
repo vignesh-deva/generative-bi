@@ -18,7 +18,7 @@ User-facing application for the Generative BI Agent.
 | **Recent** | `/recent` | Past chat sessions with relative timestamps, click to resume |
 | **Requests** | `/requests` | Dashboard request lifecycle — Drafts / Active / Closed tabs, comment threads |
 
-The login page at `/login` is the unauthenticated entry point. All other routes redirect there if no valid JWT cookie is present.
+The login page at `/login` is the unauthenticated entry point. All other routes redirect there if no valid JWT cookie (`auth_token`) is present. This session is independent of the Operations Center — logging into one portal does not authenticate the other.
 
 ## Databases
 

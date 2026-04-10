@@ -170,7 +170,7 @@ generative-bi/
 | **Recent** | `/recent` | Past chat sessions with relative timestamps, click to resume |
 | **Requests** | `/requests` | Submit dashboard requests; 8-state lifecycle (draft → closed) with comment threads |
 
-> **Authentication:** Both portals are protected by JWT auth. Unauthenticated visits redirect to `/login`. Credentials are set via `PORTAL_USERNAME` / `PORTAL_PASSWORD` in `.env`.
+> **Authentication:** Both portals are protected by JWT auth. Unauthenticated visits redirect to `/login`. Each portal maintains an independent session (separate cookies: `auth_token` for the User Portal, `ops_auth_token` for the Operations Center) — logging into one does not authenticate the other. Credentials are set via `PORTAL_USERNAME` / `PORTAL_PASSWORD` in `.env`.
 
 ---
 
@@ -281,7 +281,7 @@ docker compose exec portal-backend python db/seed_fewshots.py
 | Portal API docs | http://localhost:8000/docs |
 | Ops API docs | http://localhost:8001/docs |
 
-Both portals redirect to `/login` on first visit. Default credentials: `testuser` / `testpass` (set in `.env`).
+Both portals redirect to `/login` on first visit and require separate logins — they maintain independent sessions. Default credentials: `testuser` / `testpass` (set in `.env`).
 
 ---
 

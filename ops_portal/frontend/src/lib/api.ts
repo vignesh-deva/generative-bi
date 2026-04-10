@@ -2,13 +2,13 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
 export function authHeader(): Record<string, string> {
   if (typeof document === "undefined") return {};
-  const match = document.cookie.match(/(?:^|;\s*)auth_token=([^;]*)/);
+  const match = document.cookie.match(/(?:^|;\s*)ops_auth_token=([^;]*)/);
   const token = match ? decodeURIComponent(match[1]) : null;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export function logout() {
-  document.cookie = "auth_token=; path=/; max-age=0";
+  document.cookie = "ops_auth_token=; path=/; max-age=0";
   window.location.href = "/login";
 }
 
