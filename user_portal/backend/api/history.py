@@ -39,4 +39,12 @@ async def get_messages(session_id: str):
     messages = await cursor.to_list(length=500)
     for m in messages:
         m["created_at"] = m["created_at"].isoformat()
+        # Older rows predate these fields; normalize so clients don't have to guard.
+        m.setdefault("message_id", None)
+        m.setdefault("feedback", None)
+        m.setdefault("feedback_comment", None)
+        if m.get("feedback_at") is not None:
+            m["feedback_at"] = m["feedback_at"].isoformat()
+        else:
+            m["feedback_at"] = None
     return messages

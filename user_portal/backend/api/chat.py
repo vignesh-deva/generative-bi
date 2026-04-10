@@ -66,21 +66,18 @@ def sse_event(data: dict | str) -> str:
 
 
 async def _run_pipeline(query: str, session_id: str):
-    """Run the pipeline with a timeout. Yields (node_name, node_update) tuples.
-
-    Pipeline runs to completion or raises asyncio.TimeoutError.
+    """Stream pipeline updates as nodes complete. Raises asyncio.TimeoutError if
+    the overall wall-clock deadline is exceeded between chunks.
     """
-    async def _consume():
-        chunks = []
-        async for chunk in pipeline.astream(
-            {"query": query, "session_id": session_id, "stream_insight": True},
-            stream_mode="updates",
-        ):
-            chunks.append(chunk)
-        return chunks
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + PIPELINE_TIMEOUT_SECONDS
 
-    chunks = await asyncio.wait_for(_consume(), timeout=PIPELINE_TIMEOUT_SECONDS)
-    for chunk in chunks:
+    async for chunk in pipeline.astream(
+        {"query": query, "session_id": session_id, "stream_insight": True},
+        stream_mode="updates",
+    ):
+        if loop.time() > deadline:
+            raise asyncio.TimeoutError()
         for node_name, node_update in chunk.items():
             yield node_name, node_update
 
@@ -101,13 +98,19 @@ async def chat(req: ChatRequest):
             }
         )
 
+    user_message_id = str(uuid.uuid4())
+    assistant_message_id = str(uuid.uuid4())
+
     await chat_messages().insert_one(
         {
+            "message_id": user_message_id,
             "session_id": session_id,
             "role": "user",
             "content": req.query,
             "sql_query": None,
             "feedback": None,
+            "feedback_comment": None,
+            "feedback_at": None,
             "created_at": datetime.now(timezone.utc),
         }
     )
@@ -116,6 +119,10 @@ async def chat(req: ChatRequest):
         result: dict = {}
         response_text = ""
         sql_query = None
+
+        # Tell the client which message_id the upcoming assistant reply will have,
+        # so thumbs up/down can be submitted against it immediately.
+        yield sse_event({"type": "message_id", "content": assistant_message_id})
 
         try:
             async for node_name, node_update in _run_pipeline(req.query, session_id):
@@ -177,11 +184,14 @@ async def chat(req: ChatRequest):
         try:
             await chat_messages().insert_one(
                 {
+                    "message_id": assistant_message_id,
                     "session_id": session_id,
                     "role": "assistant",
                     "content": response_text,
                     "sql_query": sql_query,
                     "feedback": None,
+                    "feedback_comment": None,
+                    "feedback_at": None,
                     "created_at": datetime.now(timezone.utc),
                 }
             )

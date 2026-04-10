@@ -4,19 +4,29 @@ import { useState, useRef, useEffect, FormEvent, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Send, Bot, User, Loader2, Sparkles, Table2,
-  ChevronRight, ChevronDown, FilePlus,
+  ChevronRight, ChevronDown, FilePlus, ThumbsUp, ThumbsDown,
 } from "lucide-react";
-import { fetchMessages, type ChatContext } from "@/lib/api";
+import {
+  fetchMessages,
+  submitFeedback,
+  type ChatContext,
+  type FeedbackVote,
+} from "@/lib/api";
 import RequestModal from "./RequestModal";
 
 type Message = {
-  id: string;
+  id: string;                     // local React key
+  serverMessageId?: string | null; // stable id known to the backend (for feedback)
   role: "user" | "assistant";
   content: string;
   sql?: string;
   steps?: string[];
   stepsOpen?: boolean;
   timestamp: Date;
+  feedback?: FeedbackVote;
+  feedbackComment?: string | null;
+  feedbackOpen?: boolean;         // comment editor visibility
+  feedbackDraft?: string;         // in-progress comment text
 };
 
 // ── Steps panel ───────────────────────────────────────────────────
@@ -102,9 +112,12 @@ function StepsPanel({
 // ── Types ─────────────────────────────────────────────────────────
 
 type HistoryMessage = {
+  message_id?: string | null;
   role: "user" | "assistant";
   content: string;
   sql_query?: string | null;
+  feedback?: FeedbackVote;
+  feedback_comment?: string | null;
   created_at: string;
 };
 
@@ -172,6 +185,41 @@ function ChatPageInner() {
     setTimeout(() => setRequestFlash(null), 3500);
   }
 
+  function patchMessage(localId: string, patch: Partial<Message>) {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === localId ? { ...m, ...patch } : m))
+    );
+  }
+
+  async function handleVote(msg: Message, vote: "up" | "down") {
+    if (!msg.serverMessageId) return; // assistant reply not yet persisted
+    const nextVote: "up" | "down" | null = msg.feedback === vote ? null : vote;
+    const previous = { feedback: msg.feedback ?? null, feedbackComment: msg.feedbackComment ?? null };
+    patchMessage(msg.id, { feedback: nextVote });
+    try {
+      await submitFeedback(msg.serverMessageId, nextVote, msg.feedbackComment ?? null);
+    } catch {
+      // rollback on failure
+      patchMessage(msg.id, previous);
+    }
+  }
+
+  async function handleSaveComment(msg: Message) {
+    if (!msg.serverMessageId) return;
+    const comment = (msg.feedbackDraft ?? "").trim() || null;
+    const previous = { feedbackComment: msg.feedbackComment ?? null };
+    patchMessage(msg.id, {
+      feedbackComment: comment,
+      feedbackOpen: false,
+      feedbackDraft: undefined,
+    });
+    try {
+      await submitFeedback(msg.serverMessageId, msg.feedback ?? null, comment);
+    } catch {
+      patchMessage(msg.id, { ...previous, feedbackOpen: true });
+    }
+  }
+
   // Load session history whenever the ?session= param changes
   useEffect(() => {
     if (!sessionParam) {
@@ -190,10 +238,13 @@ function ChatPageInner() {
         setMessages(
           data.map((m) => ({
             id: crypto.randomUUID(),
+            serverMessageId: m.message_id ?? null,
             role: m.role,
             content: m.content,
             sql: m.sql_query ?? undefined,
             timestamp: new Date(m.created_at),
+            feedback: m.feedback ?? null,
+            feedbackComment: m.feedback_comment ?? null,
           }))
         );
       })
@@ -268,7 +319,15 @@ function ChatPageInner() {
 
             try {
               const parsed = JSON.parse(data);
-              if (parsed.type === "step") {
+              if (parsed.type === "message_id") {
+                const serverMessageId = parsed.content as string;
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId ? { ...m, serverMessageId } : m
+                  )
+                );
+                continue;
+              } else if (parsed.type === "step") {
                 steps = [...steps, parsed.content];
               } else if (parsed.type === "token") {
                 if (!firstTokenSeen) {
@@ -477,8 +536,92 @@ function ChatPageInner() {
                             <FilePlus size={12} />
                             Request Dashboard
                           </button>
+                          <div className="ml-auto flex items-center gap-1">
+                            <button
+                              onClick={() => handleVote(msg, "up")}
+                              disabled={!msg.serverMessageId}
+                              title="Helpful"
+                              className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors disabled:opacity-40 ${
+                                msg.feedback === "up"
+                                  ? "bg-green-50 text-green-600"
+                                  : "text-[var(--text-muted)] hover:bg-slate-100 hover:text-[var(--text-secondary)]"
+                              }`}
+                            >
+                              <ThumbsUp size={12} />
+                            </button>
+                            <button
+                              onClick={() => handleVote(msg, "down")}
+                              disabled={!msg.serverMessageId}
+                              title="Not helpful"
+                              className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors disabled:opacity-40 ${
+                                msg.feedback === "down"
+                                  ? "bg-red-50 text-red-600"
+                                  : "text-[var(--text-muted)] hover:bg-slate-100 hover:text-[var(--text-secondary)]"
+                              }`}
+                            >
+                              <ThumbsDown size={12} />
+                            </button>
+                            <button
+                              onClick={() =>
+                                patchMessage(msg.id, {
+                                  feedbackOpen: !msg.feedbackOpen,
+                                  feedbackDraft:
+                                    msg.feedbackOpen
+                                      ? msg.feedbackDraft
+                                      : msg.feedbackComment ?? "",
+                                })
+                              }
+                              disabled={!msg.serverMessageId}
+                              className="ml-1 text-[11px] text-[var(--text-muted)] hover:text-blue-600 disabled:opacity-40"
+                            >
+                              {msg.feedbackComment
+                                ? "Edit note"
+                                : msg.feedbackOpen
+                                ? "Cancel"
+                                : "Add note"}
+                            </button>
+                          </div>
                         </div>
                       )}
+                      {msg.role === "assistant" && msg.feedbackOpen && (
+                        <div className="mt-2 rounded-lg border border-[var(--card-border)] bg-slate-50 p-2">
+                          <textarea
+                            value={msg.feedbackDraft ?? ""}
+                            onChange={(e) =>
+                              patchMessage(msg.id, { feedbackDraft: e.target.value })
+                            }
+                            rows={2}
+                            placeholder="What was helpful or what went wrong?"
+                            className="w-full resize-none rounded-md border border-[var(--card-border)] bg-white px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-blue-300"
+                          />
+                          <div className="mt-1.5 flex justify-end gap-2">
+                            <button
+                              onClick={() =>
+                                patchMessage(msg.id, {
+                                  feedbackOpen: false,
+                                  feedbackDraft: undefined,
+                                })
+                              }
+                              className="rounded-md px-2 py-1 text-[11px] text-[var(--text-muted)] hover:bg-slate-100"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => handleSaveComment(msg)}
+                              className="rounded-md bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700"
+                            >
+                              Save note
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {msg.role === "assistant" &&
+                        !msg.feedbackOpen &&
+                        msg.feedbackComment && (
+                          <p className="mt-1.5 text-[11px] italic text-[var(--text-muted)]">
+                            Note: {msg.feedbackComment}
+                          </p>
+                        )}
                       {msg.sql && msg.role === "user" && (
                         <button
                           onClick={() =>

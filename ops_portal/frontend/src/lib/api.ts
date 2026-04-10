@@ -114,10 +114,79 @@ export async function addTicketComment(
   return jsonOrError(res, "Add comment error");
 }
 
-export async function fetchFeedback<T>(): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/feedback`, { credentials: "include" });
-  if (!res.ok) throw new Error(`Feedback API error: ${res.status}`);
-  return res.json();
+export type FeedbackVote = "all" | "up" | "down";
+
+export type FeedbackItem = {
+  message_id: string;
+  session_id: string;
+  question: string;
+  sql_query: string | null;
+  answer: string | null;
+  feedback: "up" | "down" | null;
+  feedback_comment: string | null;
+  created_at: string;
+  top_similarity: number;
+  top_match_question: string | null;
+  promoted_at: string | null;
+  promoted_example_id: number | null;
+};
+
+export type FeedbackFilters = {
+  vote?: FeedbackVote;
+  hide_duplicates?: boolean;
+  include_promoted?: boolean;
+};
+
+export async function fetchFeedback(
+  filters: FeedbackFilters = {}
+): Promise<FeedbackItem[]> {
+  const params = new URLSearchParams();
+  if (filters.vote) params.set("vote", filters.vote);
+  if (filters.hide_duplicates !== undefined)
+    params.set("hide_duplicates", String(filters.hide_duplicates));
+  if (filters.include_promoted !== undefined)
+    params.set("include_promoted", String(filters.include_promoted));
+  const qs = params.toString();
+  const res = await fetch(
+    `${API_BASE}/api/feedback${qs ? `?${qs}` : ""}`,
+    { credentials: "include" }
+  );
+  return jsonOrError(res, "Feedback API error");
+}
+
+export type PromoteResult = {
+  example_id: number;
+  message_id: string;
+  promoted_at: string;
+};
+
+export type PromoteConflict = {
+  error: "duplicate";
+  similarity: number;
+  top_match: { example_id: number; question: string };
+  threshold: number;
+};
+
+export async function promoteFeedback(
+  messageId: string,
+  question: string,
+  sql: string,
+  force: boolean = false
+): Promise<PromoteResult> {
+  const url = `${API_BASE}/api/feedback/${messageId}/promote${force ? "?force=true" : ""}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ question, sql }),
+  });
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}));
+    const err = new Error("duplicate") as Error & { conflict?: PromoteConflict };
+    err.conflict = body?.detail as PromoteConflict;
+    throw err;
+  }
+  return jsonOrError(res, "Promote feedback error");
 }
 
 export async function fetchFewshots<T>(): Promise<T> {

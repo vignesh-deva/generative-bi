@@ -30,6 +30,22 @@ export async function fetchMessages<T>(sessionId: string): Promise<T> {
   return res.json();
 }
 
+export type FeedbackVote = "up" | "down" | null;
+
+export async function submitFeedback(
+  messageId: string,
+  vote: FeedbackVote,
+  comment: string | null
+): Promise<{ message_id: string; feedback: FeedbackVote; feedback_comment: string | null }> {
+  const res = await fetch(`${API_BASE}/api/feedback/${messageId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ feedback: vote, comment }),
+  });
+  return jsonOrError(res, "Submit feedback failed");
+}
+
 // ── Dashboard request types ──────────────────────────────────────
 
 export type RequestStatus =

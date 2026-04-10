@@ -4,16 +4,24 @@ Mirrors user_portal/backend/db/database.py — same pool pattern, same DB.
 """
 
 import asyncpg
+import pgvector.asyncpg
 
 from config.settings import POSTGRES_URI
 
 _pool: asyncpg.Pool | None = None
 
 
+async def _init_connection(conn: asyncpg.Connection) -> None:
+    """Register pgvector codec so embeddings can be passed as Python lists."""
+    await pgvector.asyncpg.register_vector(conn)
+
+
 async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(POSTGRES_URI, min_size=2, max_size=5)
+        _pool = await asyncpg.create_pool(
+            POSTGRES_URI, min_size=2, max_size=5, init=_init_connection
+        )
     return _pool
 
 

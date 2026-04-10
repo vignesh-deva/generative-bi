@@ -6,9 +6,11 @@ Uses Motor (async MongoDB driver) for non-blocking I/O with FastAPI.
 """
 
 import logging
+import uuid
 from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from pymongo import UpdateOne
 
 from config.settings import MONGODB_URI, MONGODB_DB_NAME
 
@@ -65,11 +67,16 @@ def chat_messages():
     Document schema:
     {
         "_id": ObjectId,
+        "message_id": str (UUID — stable id exposed to clients),
         "session_id": str (UUID — references chat_sessions.session_id),
         "role": "user" | "assistant",
         "content": str,
         "sql_query": str | None,
         "feedback": "up" | "down" | None,
+        "feedback_comment": str | None,
+        "feedback_at": datetime | None,
+        "promoted_at": datetime | None,       # set when ops curates into RAG
+        "promoted_example_id": int | None,    # fewshot_examples.example_id
         "created_at": datetime
     }
     """
@@ -124,6 +131,10 @@ async def create_indexes():
     await chat_sessions().create_index("session_id", unique=True)
     await chat_messages().create_index("session_id")
     await chat_messages().create_index("created_at")
+    await chat_messages().create_index("message_id", unique=True, sparse=True)
+    await chat_messages().create_index(
+        [("feedback", 1), ("created_at", -1)], sparse=True
+    )
     await dashboard_requests().create_index("request_id", unique=True)
     await dashboard_requests().create_index("status")
     await dashboard_requests().create_index("created_at")
@@ -156,3 +167,15 @@ async def migrate_dashboard_requests():
         upsert=True,
     )
     logger.info("dashboard_requests migrated to v2")
+
+
+async def backfill_message_ids():
+    """Assign a stable message_id to legacy chat_messages that predate the field."""
+    col = chat_messages()
+    cursor = col.find({"message_id": {"$exists": False}}, {"_id": 1})
+    ops = []
+    async for doc in cursor:
+        ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": {"message_id": str(uuid.uuid4())}}))
+    if ops:
+        result = await col.bulk_write(ops, ordered=False)
+        logger.info("backfilled message_id for %d legacy messages", result.modified_count)

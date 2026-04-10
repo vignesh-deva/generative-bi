@@ -65,6 +65,7 @@ class PipelineState(TypedDict, total=False):
 
     # Stage 2: SQL Agent
     sql_query: str
+    sql_strategy: str                     # "adapt" | "single" | "multi"
 
     # Stage 3: Validation loop
     dry_run_retries: int
@@ -182,7 +183,7 @@ async def schema_linker_node(state: PipelineState) -> PipelineState:
 # ── Stage 2: SQL Agent ──────────────────────────────────────────
 
 async def sql_node(state: PipelineState) -> PipelineState:
-    sql = await generate_sql(
+    sql, strategy = await generate_sql(
         query=state["query"],
         schema_context=state.get("schema_context", ""),
         semantic_context=state.get("semantic_context", ""),
@@ -191,6 +192,7 @@ async def sql_node(state: PipelineState) -> PipelineState:
     )
     return {
         "sql_query": sql,
+        "sql_strategy": strategy,
         "dry_run_retries": state.get("dry_run_retries", 0),
         "logic_retries": state.get("logic_retries", 0),
     }
@@ -276,6 +278,11 @@ async def logic_check_node(state: PipelineState) -> PipelineState:
 
 def route_after_logic(state: PipelineState) -> str:
     if state.get("logic_passed", True):
+        return "correct"
+    # On the adapt path the SQL is based on a curated example — trust it and skip
+    # logic correction to avoid a redundant LLM round-trip.
+    if state.get("sql_strategy") == "adapt":
+        logger.info("route_after_logic: skipping correction on adapt path")
         return "correct"
     # Logic failed — route back to correction if retries remain
     if state.get("logic_retries", 0) >= MAX_SQL_RETRIES:
