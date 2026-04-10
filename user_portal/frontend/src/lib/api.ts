@@ -1,24 +1,13 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export function getToken(): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie.match(/(?:^|;\s*)auth_token=([^;]*)/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-export function authHeader(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-export function logout() {
-  document.cookie = "auth_token=; path=/; max-age=0";
+export async function logout() {
+  await fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {});
   window.location.href = "/login";
 }
 
 export async function fetchDashboard<T>(endpoint: string): Promise<T> {
   const res = await fetch(`${API_BASE}/api/dashboard/${endpoint}`, {
-    headers: authHeader(),
+    credentials: "include",
   });
   if (!res.ok) throw new Error(`Dashboard API error: ${res.status}`);
   return res.json();
@@ -26,7 +15,7 @@ export async function fetchDashboard<T>(endpoint: string): Promise<T> {
 
 export async function fetchSessions<T>(): Promise<T> {
   const res = await fetch(`${API_BASE}/api/history/sessions`, {
-    headers: authHeader(),
+    credentials: "include",
   });
   if (!res.ok) throw new Error(`History API error: ${res.status}`);
   return res.json();
@@ -35,7 +24,7 @@ export async function fetchSessions<T>(): Promise<T> {
 export async function fetchMessages<T>(sessionId: string): Promise<T> {
   const res = await fetch(
     `${API_BASE}/api/history/sessions/${sessionId}/messages`,
-    { headers: authHeader() }
+    { credentials: "include" }
   );
   if (!res.ok) throw new Error(`Messages API error: ${res.status}`);
   return res.json();
@@ -116,12 +105,12 @@ async function jsonOrError<T>(res: Response, label: string): Promise<T> {
 }
 
 export async function fetchRequests(): Promise<DashboardRequest[]> {
-  const res = await fetch(`${API_BASE}/api/requests`, { headers: authHeader() });
+  const res = await fetch(`${API_BASE}/api/requests`, { credentials: "include" });
   return jsonOrError(res, "Fetch requests failed");
 }
 
 export async function fetchRequest(id: string): Promise<DashboardRequest> {
-  const res = await fetch(`${API_BASE}/api/requests/${id}`, { headers: authHeader() });
+  const res = await fetch(`${API_BASE}/api/requests/${id}`, { credentials: "include" });
   return jsonOrError(res, "Fetch request failed");
 }
 
@@ -133,7 +122,8 @@ export async function createDraft(payload: {
 }): Promise<DashboardRequest> {
   const res = await fetch(`${API_BASE}/api/requests/drafts`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeader() },
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(payload),
   });
   return jsonOrError(res, "Create draft failed");
@@ -145,7 +135,8 @@ export async function updateDraft(
 ): Promise<DashboardRequest> {
   const res = await fetch(`${API_BASE}/api/requests/drafts/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json", ...authHeader() },
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(payload),
   });
   return jsonOrError(res, "Update draft failed");
@@ -154,7 +145,7 @@ export async function updateDraft(
 export async function deleteDraft(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/requests/drafts/${id}`, {
     method: "DELETE",
-    headers: authHeader(),
+    credentials: "include",
   });
   if (!res.ok) throw new Error(`Delete draft failed (${res.status})`);
 }
@@ -162,7 +153,7 @@ export async function deleteDraft(id: string): Promise<void> {
 export async function submitDraft(id: string): Promise<DashboardRequest> {
   const res = await fetch(`${API_BASE}/api/requests/drafts/${id}/submit`, {
     method: "POST",
-    headers: authHeader(),
+    credentials: "include",
   });
   return jsonOrError(res, "Submit draft failed");
 }
@@ -175,7 +166,8 @@ export async function createRequest(payload: {
 }): Promise<DashboardRequest> {
   const res = await fetch(`${API_BASE}/api/requests`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeader() },
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(payload),
   });
   return jsonOrError(res, "Create request failed");
@@ -187,7 +179,8 @@ export async function addRequestComment(
 ): Promise<DashboardRequest> {
   const res = await fetch(`${API_BASE}/api/requests/${id}/comments`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeader() },
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ text }),
   });
   return jsonOrError(res, "Add comment failed");
@@ -199,7 +192,8 @@ export async function acceptRequest(
 ): Promise<DashboardRequest> {
   const res = await fetch(`${API_BASE}/api/requests/${id}/accept`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeader() },
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ note: note ?? null }),
   });
   return jsonOrError(res, "Accept failed");
@@ -211,7 +205,8 @@ export async function requestChanges(
 ): Promise<DashboardRequest> {
   const res = await fetch(`${API_BASE}/api/requests/${id}/request-changes`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeader() },
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({ note }),
   });
   return jsonOrError(res, "Request changes failed");
@@ -220,7 +215,7 @@ export async function requestChanges(
 export async function closeRequest(id: string): Promise<DashboardRequest> {
   const res = await fetch(`${API_BASE}/api/requests/${id}/close`, {
     method: "POST",
-    headers: authHeader(),
+    credentials: "include",
   });
   return jsonOrError(res, "Close failed");
 }

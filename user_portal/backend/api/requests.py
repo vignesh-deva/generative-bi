@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/requests", tags=["requests"])
 
 USER_AUTHOR = "Business User"
-AUTO_CLOSE_DAYS = 10
+AUTO_CLOSE_DAYS = 10  # also defined in ops_portal/backend/api/tickets.py — keep in sync
 
 # ── State machine ─────────────────────────────────────────────────
 
@@ -61,6 +61,7 @@ def _iso(value):
 
 
 def _serialize(doc: dict) -> dict:
+    doc = dict(doc)
     for key in (
         "created_at", "updated_at", "submitted_at",
         "closed_at", "auto_close_eligible_at",

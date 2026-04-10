@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
 OPS_AUTHOR = "Ops Team"
-AUTO_CLOSE_DAYS = 10
+AUTO_CLOSE_DAYS = 10  # also defined in user_portal/backend/api/requests.py — keep in sync
 
 # (from_status, "ops") -> allowed next statuses
 OPS_TRANSITIONS: dict[str, set[str]] = {
@@ -43,6 +43,7 @@ def _iso(value):
 
 
 def _serialize(doc: dict) -> dict:
+    doc = dict(doc)
     for key in (
         "created_at", "updated_at", "submitted_at",
         "closed_at", "auto_close_eligible_at",

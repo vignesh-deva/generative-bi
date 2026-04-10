@@ -143,8 +143,9 @@ async def migrate_dashboard_requests():
     current = await meta.find_one({"key": "dashboard_requests_schema"})
     if current and current.get("version") == "v2":
         return
+    drop_count = await dashboard_requests().count_documents({})
     await dashboard_requests().drop()
-    logger.info("dropped legacy dashboard_requests collection")
+    logger.info("dropped legacy dashboard_requests collection (%d documents)", drop_count)
     await create_indexes()
     await meta.update_one(
         {"key": "dashboard_requests_schema"},

@@ -6,7 +6,7 @@ import {
   Send, Bot, User, Loader2, Sparkles, Table2,
   ChevronRight, ChevronDown, FilePlus,
 } from "lucide-react";
-import { authHeader, fetchMessages, type ChatContext } from "@/lib/api";
+import { fetchMessages, type ChatContext } from "@/lib/api";
 import RequestModal from "./RequestModal";
 
 type Message = {
@@ -234,7 +234,8 @@ function ChatPageInner() {
     try {
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeader() },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ query: text, session_id: sessionIdRef.current }),
       });
 

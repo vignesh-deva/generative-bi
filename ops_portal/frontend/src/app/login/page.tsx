@@ -20,14 +20,14 @@ export default function LoginPage() {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ username, password }),
       });
       if (!res.ok) {
         setError("Invalid username or password");
         return;
       }
-      const { token } = await res.json();
-      document.cookie = `ops_auth_token=${token}; path=/; SameSite=Strict; max-age=${7 * 86400}`;
+      // Cookie is set via Set-Cookie by the backend (HttpOnly); no document.cookie needed.
       router.push("/");
     } catch {
       setError("Connection error. Is the backend running?");
