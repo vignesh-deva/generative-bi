@@ -32,10 +32,11 @@ user_portal/backend/
 ├── graph/
 │   └── pipeline.py      # LangGraph v2 pipeline (4 stages, fan-out, self-repair)
 ├── api/                 # FastAPI route handlers
+│   ├── auth.py          # POST /auth/login — JWT issuance; verify_token dependency used by all routers
 │   ├── chat.py          # POST /api/chat — SSE streaming via pipeline.ainvoke()
 │   ├── dashboard.py     # GET /api/dashboard/* — KPI + chart data
 │   ├── history.py       # GET /api/history/sessions + messages
-│   └── requests.py      # POST/GET /api/requests
+│   └── requests.py      # POST/GET /api/requests (8-state lifecycle)
 ├── db/                  # Database connections, seeder, verifier
 │   ├── database.py      # PostgreSQL pool (asyncpg), read-only execute_query()
 │   ├── mongo.py         # MongoDB collections (motor)
@@ -119,19 +120,26 @@ python -m db.seed_fewshots  # seed 15 NL-to-SQL few-shot examples
 
 ### End-to-end (curl)
 ```bash
+# Get a token first
+TOKEN=$(curl -s -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "testuser", "password": "testpass"}' | python -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
 # Analytics query — full pipeline: classify → RAG → schema link → SQL → execute → insight
 curl -s -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{"query": "What is the total revenue by zone?"}' \
   --no-buffer
 
-# Non-analytics — Response Agent path (4 LLM calls; 3 if no prior session)
+# Non-analytics — Response Agent path
 curl -s -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{"query": "Hello, what can you help me with?"}' \
   --no-buffer
 
-# Health check
+# Health check (public — no token required)
 curl http://localhost:8000/health
 ```
 
@@ -152,6 +160,9 @@ SSE events in the response:
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Model for RAG embedding generation |
 | `MAX_SQL_RETRIES` | `3` | Max self-repair iterations in the validation loop |
 | `DOMAIN_DESCRIPTION` | `FMCG supply chain analytics` | Business domain label injected into all agent prompts |
+| `PORTAL_USERNAME` | `testuser` | Login username for the user portal |
+| `PORTAL_PASSWORD` | `testpass` | Login password for the user portal |
+| `JWT_SECRET` | `dev-secret-change-in-prod` | HS256 signing secret for JWT tokens (change before deploying) |
 | `POSTGRES_URI` | `postgresql://genbi:genbi@localhost:5432/genbi` | PostgreSQL connection |
 | `MONGODB_URI` | `mongodb://localhost:27017` | MongoDB connection |
 
@@ -159,6 +170,8 @@ SSE events in the response:
 
 | Date | Change |
 |------|--------|
+| 2026-04-10 | Add JWT auth — `api/auth.py`, `verify_token` dependency on all API routers; `/auth/login` and `/health` remain public |
+| 2026-04-05 | Dashboard request v2 — 8-state lifecycle, chat context capture, comment threads, auto-close |
 | 2026-04-04 | Add Query Rewriter; upgrade Logic Check → Validation Agent (agentic tool loop); Schema Agent appends value samples; SQL Agent injects today's date |
 | 2026-03-27 | Move semantic_layer to config/; derive all domain context from semantic layer + DOMAIN_DESCRIPTION setting |
 | 2026-03-25 | v2 pipeline: 12 agents, 4 stages, semantic layer, schema linker, response agent, self-repair loop |

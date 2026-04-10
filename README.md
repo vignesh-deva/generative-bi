@@ -84,9 +84,11 @@ generative-bi/
 │   │       │   ├── page.tsx             # Dashboard (3x3 KPI/chart grid)
 │   │       │   ├── chat/page.tsx        # Chat (SSE streaming, SQL viewer)
 │   │       │   ├── recent/page.tsx      # Recent chat sessions
-│   │       │   └── requests/page.tsx    # Dashboard request submission
-│   │       ├── components/              # AppShell, Sidebar, Header, KpiCard, ChartCard
-│   │       └── lib/api.ts              # API client (fetch wrappers)
+│   │       │   ├── requests/page.tsx    # Dashboard request lifecycle (8-state)
+│   │       │   └── login/page.tsx       # Login form
+│   │       ├── middleware.ts            # Route protection — redirects to /login if unauthenticated
+│   │       ├── components/              # AppShell, ConditionalAppShell, Sidebar, Header, KpiCard, ChartCard
+│   │       └── lib/api.ts              # API client (fetch wrappers + authHeader/logout helpers)
 │   │
 │   └── backend/                         # FastAPI — agent pipeline & APIs
 │       ├── main.py                      # App entry, router registration, lifespan
@@ -109,9 +111,10 @@ generative-bi/
 │       ├── graph/
 │       │   └── pipeline.py              # LangGraph v2 workflow (4 stages, fan-out, self-repair loop)
 │       ├── api/
+│       │   ├── auth.py                  # POST /auth/login — issues JWT; verify_token dependency
 │       │   ├── chat.py                  # POST /api/chat — SSE streaming via pipeline.ainvoke()
 │       │   ├── dashboard.py             # GET /api/dashboard/* — KPI + chart data
-│       │   ├── requests.py              # POST/GET /api/requests
+│       │   ├── requests.py              # POST/GET /api/requests (8-state lifecycle)
 │       │   └── history.py               # GET /api/history/sessions
 │       ├── db/
 │       │   ├── database.py              # PostgreSQL pool (asyncpg), read-only queries
@@ -127,13 +130,16 @@ generative-bi/
 │   │       ├── app/
 │   │       │   ├── page.tsx             # Tickets (dashboard requests from users)
 │   │       │   ├── feedback/page.tsx    # Feedback review (thumbs up/down)
-│   │       │   └── rag/page.tsx         # RAG curation (few-shot examples)
-│   │       ├── components/              # AppShell, Sidebar, Header
-│   │       └── lib/api.ts              # API client
+│   │       │   ├── rag/page.tsx         # RAG curation (few-shot examples)
+│   │       │   └── login/page.tsx       # Login form
+│   │       ├── middleware.ts            # Route protection — redirects to /login if unauthenticated
+│   │       ├── components/              # AppShell, ConditionalAppShell, Sidebar, Header
+│   │       └── lib/api.ts              # API client (fetch wrappers + authHeader/logout helpers)
 │   │
 │   └── backend/                         # FastAPI — ops APIs
 │       ├── main.py
 │       ├── api/
+│       │   ├── auth.py                  # POST /auth/login — issues JWT; verify_token dependency
 │       │   ├── tickets.py               # GET/PATCH /api/tickets
 │       │   ├── feedback.py              # GET /api/feedback
 │       │   └── rag.py                   # GET/POST /api/rag/fewshots
@@ -162,7 +168,9 @@ generative-bi/
 | **Dashboard** | `/` | 3x3 grid — 3 KPI cards + 6 charts (recharts, INR formatting) |
 | **Chat** | `/chat` | NL-to-SQL chat with SSE streaming, suggestion chips, SQL viewer |
 | **Recent** | `/recent` | Past chat sessions with relative timestamps, click to resume |
-| **Requests** | `/requests` | Submit dashboard requests + track status (Pending/In Progress/Done/Rejected) |
+| **Requests** | `/requests` | Submit dashboard requests; 8-state lifecycle (draft → closed) with comment threads |
+
+> **Authentication:** Both portals are protected by JWT auth. Unauthenticated visits redirect to `/login`. Credentials are set via `PORTAL_USERNAME` / `PORTAL_PASSWORD` in `.env`.
 
 ---
 
@@ -224,8 +232,9 @@ All data is persisted via Docker named volumes (`pg-data`, `mongo-data`). Data s
 - Self-repair loop with max 3 retries
 - Streaming responses via SSE
 - Chat history persistence (MongoDB)
-- Dashboard request workflow for business users
+- Dashboard request workflow — 8-state lifecycle with comment threads and auto-close
 - Operations Center for feedback review and RAG curation
+- JWT-based auth on both portals — credentials configured via `.env`
 - Model-agnostic — any OpenAI-compatible endpoint via `.env`
 - Dockerized — all services via `docker-compose up`
 
@@ -239,6 +248,7 @@ All data is persisted via Docker named volumes (`pg-data`, `mongo-data`). Data s
 ```bash
 cp .env.example .env
 # Edit .env — set your LLM_MODEL, LLM_MODEL_SMALL, LLM_BASE_URL, LLM_API_KEY
+# Optionally change PORTAL_USERNAME / PORTAL_PASSWORD / JWT_SECRET before deploying
 ```
 
 **2. Build and start all services**
@@ -270,6 +280,8 @@ docker compose exec portal-backend python db/seed_fewshots.py
 | Operations Center | http://localhost:3001 |
 | Portal API docs | http://localhost:8000/docs |
 | Ops API docs | http://localhost:8001/docs |
+
+Both portals redirect to `/login` on first visit. Default credentials: `testuser` / `testpass` (set in `.env`).
 
 ---
 
@@ -415,6 +427,11 @@ EMBEDDING_MODEL=text-embedding-3-small
 
 # Max SQL retry attempts in self-repair loop
 MAX_SQL_RETRIES=3
+
+# Portal auth (both portals share the same credentials)
+PORTAL_USERNAME=testuser
+PORTAL_PASSWORD=testpass
+JWT_SECRET=change-me-in-prod
 
 # Databases
 POSTGRES_URI=postgresql://genbi:genbi@localhost:5432/genbi

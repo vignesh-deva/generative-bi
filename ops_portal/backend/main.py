@@ -1,9 +1,11 @@
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.auth import router as auth_router
+from api.auth import verify_token
 from api.tickets import router as tickets_router
 from api.feedback import router as feedback_router
 from api.rag import router as rag_router
@@ -33,9 +35,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(tickets_router)
-app.include_router(feedback_router)
-app.include_router(rag_router)
+app.include_router(auth_router)
+app.include_router(tickets_router, dependencies=[Depends(verify_token)])
+app.include_router(feedback_router, dependencies=[Depends(verify_token)])
+app.include_router(rag_router, dependencies=[Depends(verify_token)])
 
 
 @app.get("/health")

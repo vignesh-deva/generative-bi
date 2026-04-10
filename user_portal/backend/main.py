@@ -2,7 +2,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 # ── Logging setup ────────────────────────────────────────────────
 logging.basicConfig(
@@ -12,6 +12,8 @@ logging.basicConfig(
 )
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.auth import router as auth_router
+from api.auth import verify_token
 from api.dashboard import router as dashboard_router
 from api.chat import router as chat_router
 from api.history import router as history_router
@@ -44,10 +46,11 @@ app.add_middleware(
     expose_headers=["X-Session-Id"],
 )
 
-app.include_router(dashboard_router)
-app.include_router(chat_router)
-app.include_router(history_router)
-app.include_router(requests_router)
+app.include_router(auth_router)
+app.include_router(dashboard_router, dependencies=[Depends(verify_token)])
+app.include_router(chat_router, dependencies=[Depends(verify_token)])
+app.include_router(history_router, dependencies=[Depends(verify_token)])
+app.include_router(requests_router, dependencies=[Depends(verify_token)])
 
 
 @app.get("/health")

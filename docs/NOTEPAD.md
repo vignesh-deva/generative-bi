@@ -97,9 +97,28 @@ A running log of decisions, next steps, and open questions for the Generative BI
 - [x] Fix session switching — `useSearchParams` + `sessionParam` dependency
 - [x] Add structured logging across all agents
 
+### Completed — Dashboard Request v2 (2026-04-05, branch: feat/dashboard-request-v2)
+- [x] Replaced 4-status request flow with full 8-state lifecycle (draft → requested → in-progress → need additional details → completed → accepted/request changes → closed)
+- [x] MongoDB schema v2 with one-shot migration (drop + recreate on boot)
+- [x] State-machine-enforced transitions in both user and ops backends
+- [x] Chat integration — "Request Dashboard" button on every assistant message captures question, answer, SQL, and last 6 messages as context
+- [x] User portal — Drafts/Active/Closed tabs, hint panel, comment threads, Accept / Request Changes / Close actions
+- [x] Ops portal — 8-status tabs, chat context preview, transition buttons
+- [x] Lazy auto-close sweep (no scheduler needed) — runs on list/detail reads
+
+### Completed — Portal Auth (2026-04-10, branch: feat/dashboard-request-v2)
+- [x] JWT-based auth (PyJWT, HS256, 7-day tokens) on both portal backends
+- [x] `POST /auth/login` endpoint — validates `PORTAL_USERNAME` / `PORTAL_PASSWORD` from `.env`
+- [x] All API routes protected via FastAPI dependency (`verify_token`) — `/auth/login` and `/health` remain public
+- [x] Next.js middleware on both frontends — redirects unauthenticated users to `/login`
+- [x] Login pages for user portal (port 3000) and ops portal (port 3001)
+- [x] `logout()` helper clears cookie and redirects; logout button in both portal headers
+- [x] `PORTAL_USERNAME=testuser`, `PORTAL_PASSWORD=testpass`, `JWT_SECRET` added to root `.env` and all `.env.example` files; passed to Docker services via docker-compose
+
 ### Up Next
-- [ ] Raise PR for `feat/e2e-wiring` → `main`, review and fix PR comments
-- [ ] **Next feature: Request a Dashboard** — business users submit a request to the BI team from the portal chat page
+- [ ] Raise PR for `feat/dashboard-request-v2` → `main`
+- [ ] Power BI export — format and integration approach TBD
+- [ ] Auth/access control hardening for production (separate ops vs user credentials, HTTPS-only cookies)
 
 ---
 

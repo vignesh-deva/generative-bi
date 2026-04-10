@@ -1,5 +1,17 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
+export function authHeader(): Record<string, string> {
+  if (typeof document === "undefined") return {};
+  const match = document.cookie.match(/(?:^|;\s*)auth_token=([^;]*)/);
+  const token = match ? decodeURIComponent(match[1]) : null;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export function logout() {
+  document.cookie = "auth_token=; path=/; max-age=0";
+  window.location.href = "/login";
+}
+
 // ── Dashboard request types (shared shape with user portal) ─────
 
 export type RequestStatus =
@@ -73,12 +85,12 @@ async function jsonOrError<T>(res: Response, label: string): Promise<T> {
 }
 
 export async function fetchTickets(): Promise<DashboardRequest[]> {
-  const res = await fetch(`${API_BASE}/api/tickets`);
+  const res = await fetch(`${API_BASE}/api/tickets`, { headers: authHeader() });
   return jsonOrError(res, "Tickets API error");
 }
 
 export async function fetchTicket(id: string): Promise<DashboardRequest> {
-  const res = await fetch(`${API_BASE}/api/tickets/${id}`);
+  const res = await fetch(`${API_BASE}/api/tickets/${id}`, { headers: authHeader() });
   return jsonOrError(res, "Ticket fetch error");
 }
 
@@ -89,7 +101,7 @@ export async function updateTicketStatus(
 ): Promise<DashboardRequest> {
   const res = await fetch(`${API_BASE}/api/tickets/${requestId}/status`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeader() },
     body: JSON.stringify({ status, comment }),
   });
   return jsonOrError(res, "Update ticket error");
@@ -101,20 +113,20 @@ export async function addTicketComment(
 ): Promise<DashboardRequest> {
   const res = await fetch(`${API_BASE}/api/tickets/${requestId}/comments`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeader() },
     body: JSON.stringify({ text }),
   });
   return jsonOrError(res, "Add comment error");
 }
 
 export async function fetchFeedback<T>(): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/feedback`);
+  const res = await fetch(`${API_BASE}/api/feedback`, { headers: authHeader() });
   if (!res.ok) throw new Error(`Feedback API error: ${res.status}`);
   return res.json();
 }
 
 export async function fetchFewshots<T>(): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/rag/fewshots`);
+  const res = await fetch(`${API_BASE}/api/rag/fewshots`, { headers: authHeader() });
   if (!res.ok) throw new Error(`RAG API error: ${res.status}`);
   return res.json();
 }
@@ -125,7 +137,7 @@ export async function createFewshot(
 ): Promise<{ id: number }> {
   const res = await fetch(`${API_BASE}/api/rag/fewshots`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeader() },
     body: JSON.stringify({ question, sql }),
   });
   if (!res.ok) throw new Error(`Create fewshot error: ${res.status}`);

@@ -1,6 +1,7 @@
 "use client";
 
-import { Bell, Search, User } from "lucide-react";
+import { Bell, Search, User, LogOut } from "lucide-react";
+import { logout } from "@/lib/api";
 
 export default function Header() {
   return (
@@ -25,18 +26,15 @@ export default function Header() {
           <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />
         </button>
         <div className="mx-2 h-6 w-px bg-[var(--card-border)]" />
-        <button className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--background)]">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-600 text-xs font-semibold text-white">
-            <User size={16} />
-          </div>
-          <div className="text-left">
-            <p className="text-sm font-medium leading-none text-[var(--text-primary)]">
-              Ops Admin
-            </p>
-            <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-              ops@company.com
-            </p>
-          </div>
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-600 text-xs font-semibold text-white">
+          <User size={16} />
+        </div>
+        <button
+          onClick={logout}
+          title="Sign out"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors hover:bg-[var(--background)] hover:text-red-400"
+        >
+          <LogOut size={16} />
         </button>
       </div>
     </header>
