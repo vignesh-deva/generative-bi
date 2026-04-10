@@ -6,12 +6,12 @@ Next.js + Tailwind — User portal for the Generative BI Agent.
 
 | Sidebar Nav | Route | Description |
 |-------------|-------|-------------|
-| **Dashboard** | `/dashboard` | Static 2x2 chart grid with hardcoded FMCG data |
-| **Request New** | `/requests/new` | Submit a request for a new dashboard/report |
-| **+ New Chat** | `/chat` | NL → SQL chat with streaming agent responses |
-| **Recent** | `/chat/history` | Past chat sessions (click to view) |
+| **Dashboard** | `/` | 3×3 grid — 3 KPI cards + 6 recharts charts |
+| **Chat** | `/chat` | NL-to-SQL chat with SSE streaming, SQL viewer, collapsible pipeline steps panel |
+| **Recent** | `/recent` | Past chat sessions with relative timestamps, click to resume |
+| **Requests** | `/requests` | Dashboard request lifecycle — Drafts / Active / Closed tabs, comment threads |
 
-Requests have a detail view with viewable and editable comments.
+Unauthenticated visits to any route are redirected to `/login` by `src/middleware.ts`. The login form posts credentials to the backend and stores the returned JWT as a cookie.
 
 ## Stack
 
@@ -25,3 +25,5 @@ Requests have a detail view with viewable and editable comments.
 npm install
 npm run dev   # starts on http://localhost:3000
 ```
+
+Set `NEXT_PUBLIC_API_URL` in the environment (or it defaults to `http://localhost:8000`).

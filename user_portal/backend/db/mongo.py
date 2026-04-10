@@ -5,9 +5,14 @@ Stores chat sessions, messages, feedback, and dashboard requests.
 Uses Motor (async MongoDB driver) for non-blocking I/O with FastAPI.
 """
 
+import logging
+from datetime import datetime, timezone
+
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from config.settings import MONGODB_URI, MONGODB_DB_NAME
+
+logger = logging.getLogger(__name__)
 
 _client: AsyncIOMotorClient | None = None
 _db: AsyncIOMotorDatabase | None = None
@@ -73,24 +78,42 @@ def chat_messages():
 
 def dashboard_requests():
     """
-    Collection: dashboard_requests
+    Collection: dashboard_requests (schema v2)
 
     Document schema:
     {
         "_id": ObjectId,
         "request_id": str (UUID),
+        "session_id": str | None,           # set when created from chat
         "title": str,
-        "description": str | None,
-        "status": "Pending" | "In Progress" | "Done" | "Rejected",
+        "description": str,
+        "chat_context": None | {
+            "message_id": str,
+            "question": str,
+            "answer": str,
+            "sql": str | None,
+            "history": [ { "role", "content", "created_at" } ]
+        },
+        "status": "draft" | "requested" | "in-progress" | "need additional details"
+                | "completed" | "accepted" | "request changes" | "closed",
+        "created_at": datetime,
+        "updated_at": datetime,
+        "submitted_at": datetime | None,
+        "closed_at": datetime | None,
+        "auto_close_eligible_at": datetime | None,  # now + 10d on entry to accepted/completed
         "comments": [
             {
+                "comment_id": str,
                 "author": str,
                 "text": str,
+                "type": "comment" | "status_change",
                 "created_at": datetime
             }
         ],
-        "created_at": datetime,
-        "updated_at": datetime
+        "status_history": [
+            { "from": str|None, "to": str, "actor": "user"|"ops"|"system",
+              "at": datetime, "note": str|None }
+        ]
     }
     """
     return get_db()["dashboard_requests"]
@@ -104,3 +127,32 @@ async def create_indexes():
     await dashboard_requests().create_index("request_id", unique=True)
     await dashboard_requests().create_index("status")
     await dashboard_requests().create_index("created_at")
+    await dashboard_requests().create_index("updated_at")
+    await dashboard_requests().create_index("session_id", sparse=True)
+    await dashboard_requests().create_index("auto_close_eligible_at", sparse=True)
+
+
+async def migrate_dashboard_requests():
+    """
+    One-shot schema migration for dashboard_requests.
+
+    Drops the legacy collection (4-status model) and recreates it with v2 indexes.
+    Gated by a _meta document so it runs exactly once.
+    """
+    meta = get_db()["_meta"]
+    current = await meta.find_one({"key": "dashboard_requests_schema"})
+    if current and current.get("version") == "v2":
+        return
+    drop_count = await dashboard_requests().count_documents({})
+    await dashboard_requests().drop()
+    logger.info("dropped legacy dashboard_requests collection (%d documents)", drop_count)
+    await create_indexes()
+    await meta.update_one(
+        {"key": "dashboard_requests_schema"},
+        {"$set": {
+            "version": "v2",
+            "migrated_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+    logger.info("dashboard_requests migrated to v2")

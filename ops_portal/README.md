@@ -11,11 +11,13 @@ Operations Center application for the BI/dev team.
 
 ## Pages
 
-| Page | Description |
-|------|-------------|
-| **Tickets** | View and manage dashboard development requests from business users |
-| **Feedback** | Review thumbs-up/down feedback on chat responses |
-| **RAG Curation** | Review agent-generated SQL — save good queries or fix bad ones, then persist to pgvector as few-shot examples |
+| Page | Route | Description |
+|------|-------|-------------|
+| **Tickets** | `/` | View and manage dashboard requests from business users — 8-status tabs, chat context preview, transition buttons |
+| **Feedback** | `/feedback` | Review thumbs-up/down feedback on chat responses |
+| **RAG Curation** | `/rag` | Manage few-shot NL-to-SQL examples — add, review, curate for accuracy |
+
+The login page at `/login` is the unauthenticated entry point. All other routes redirect there if no valid JWT cookie (`ops_auth_token`) is present. This session is independent of the User Portal — logging into one portal does not authenticate the other.
 
 ## Purpose
 
@@ -25,4 +27,4 @@ Creates a human-in-the-loop feedback loop that continuously improves NL → SQL 
 
 The ops backend connects to:
 - **PostgreSQL** — reads FMCG data for SQL validation, writes curated few-shot examples to pgvector
-- **MongoDB** — reads chat sessions, messages, and feedback for review
+- **MongoDB** — reads chat sessions, messages, feedback, and dashboard requests for review

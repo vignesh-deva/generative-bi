@@ -4,9 +4,10 @@ import { useState, useRef, useEffect, FormEvent, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Send, Bot, User, Loader2, Sparkles, Table2,
-  ChevronRight, ChevronDown,
+  ChevronRight, ChevronDown, FilePlus,
 } from "lucide-react";
-import { fetchMessages } from "@/lib/api";
+import { fetchMessages, type ChatContext } from "@/lib/api";
+import RequestModal from "./RequestModal";
 
 type Message = {
   id: string;
@@ -116,6 +117,11 @@ function ChatPageInner() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [showSql, setShowSql] = useState<string | null>(null);
+  const [requestModal, setRequestModal] = useState<{
+    title: string;
+    context: ChatContext;
+  } | null>(null);
+  const [requestFlash, setRequestFlash] = useState<string | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -128,6 +134,42 @@ function ChatPageInner() {
     setMessages((prev) =>
       prev.map((m) => (m.id === msgId ? { ...m, stepsOpen: !m.stepsOpen } : m))
     );
+  }
+
+  function openRequestModalForMessage(msg: Message) {
+    const idx = messages.findIndex((m) => m.id === msg.id);
+    if (idx < 0) return;
+    // Previous user message (the question this response answers)
+    let question = "";
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        question = messages[i].content;
+        break;
+      }
+    }
+    // Last 6 messages ending at this assistant message (inclusive)
+    const start = Math.max(0, idx - 5);
+    const history = messages.slice(start, idx + 1).map((m) => ({
+      role: m.role,
+      content: m.content,
+      created_at: m.timestamp.toISOString(),
+    }));
+    const context: ChatContext = {
+      message_id: msg.id,
+      question,
+      answer: msg.content,
+      sql: msg.sql ?? null,
+      history,
+    };
+    const initialTitle = (question || msg.content).slice(0, 80);
+    setRequestModal({ title: initialTitle, context });
+  }
+
+  function onRequestResult(kind: "draft" | "submitted") {
+    setRequestFlash(
+      kind === "submitted" ? "Request submitted." : "Draft saved."
+    );
+    setTimeout(() => setRequestFlash(null), 3500);
   }
 
   // Load session history whenever the ?session= param changes
@@ -193,6 +235,7 @@ function ChatPageInner() {
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ query: text, session_id: sessionIdRef.current }),
       });
 
@@ -314,6 +357,23 @@ function ChatPageInner() {
         </p>
       </div>
 
+      {requestFlash && (
+        <div className="fixed right-6 top-6 z-40 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-700 shadow-md">
+          {requestFlash}
+        </div>
+      )}
+
+      {requestModal && (
+        <RequestModal
+          open={!!requestModal}
+          onClose={() => setRequestModal(null)}
+          initialTitle={requestModal.title}
+          chatContext={requestModal.context}
+          sessionId={sessionIdRef.current}
+          onResult={onRequestResult}
+        />
+      )}
+
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto py-5">
         {messages.length === 0 ? (
@@ -397,16 +457,34 @@ function ChatPageInner() {
                         />
                       )}
                       <p className="whitespace-pre-wrap">{msg.content}</p>
-                      {msg.sql && (
+                      {msg.role === "assistant" && msg.content && (
+                        <div className="mt-2.5 flex items-center gap-3">
+                          {msg.sql && (
+                            <button
+                              onClick={() =>
+                                setShowSql(showSql === msg.id ? null : msg.id)
+                              }
+                              className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                            >
+                              <Table2 size={12} />
+                              {showSql === msg.id ? "Hide SQL" : "View SQL"}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openRequestModalForMessage(msg)}
+                            className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-blue-600"
+                          >
+                            <FilePlus size={12} />
+                            Request Dashboard
+                          </button>
+                        </div>
+                      )}
+                      {msg.sql && msg.role === "user" && (
                         <button
                           onClick={() =>
                             setShowSql(showSql === msg.id ? null : msg.id)
                           }
-                          className={`mt-2.5 flex items-center gap-1.5 text-xs ${
-                            msg.role === "user"
-                              ? "text-blue-200 hover:text-white"
-                              : "text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
-                          }`}
+                          className="mt-2.5 flex items-center gap-1.5 text-xs text-blue-200 hover:text-white"
                         >
                           <Table2 size={12} />
                           {showSql === msg.id ? "Hide SQL" : "View SQL"}

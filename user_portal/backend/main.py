@@ -2,7 +2,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 # ── Logging setup ────────────────────────────────────────────────
 logging.basicConfig(
@@ -12,18 +12,21 @@ logging.basicConfig(
 )
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.auth import router as auth_router
+from api.auth import verify_token
 from api.dashboard import router as dashboard_router
 from api.chat import router as chat_router
 from api.history import router as history_router
 from api.requests import router as requests_router
 from db.database import get_pool, close_pool
-from db.mongo import close_client, create_indexes
+from db.mongo import close_client, create_indexes, migrate_dashboard_requests
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await get_pool()
     await create_indexes()
+    await migrate_dashboard_requests()
     yield
     await close_pool()
     await close_client()
@@ -38,15 +41,17 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-Session-Id"],
 )
 
-app.include_router(dashboard_router)
-app.include_router(chat_router)
-app.include_router(history_router)
-app.include_router(requests_router)
+app.include_router(auth_router)
+app.include_router(dashboard_router, dependencies=[Depends(verify_token)])
+app.include_router(chat_router, dependencies=[Depends(verify_token)])
+app.include_router(history_router, dependencies=[Depends(verify_token)])
+app.include_router(requests_router, dependencies=[Depends(verify_token)])
 
 
 @app.get("/health")

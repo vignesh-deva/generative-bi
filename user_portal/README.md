@@ -13,10 +13,12 @@ User-facing application for the Generative BI Agent.
 
 | Sidebar Nav | Route | Description |
 |-------------|-------|-------------|
-| **Dashboard** | `/dashboard` | Static 2x2 chart grid with hardcoded FMCG data |
-| **Request New** | `/requests/new` | Submit a request for a new dashboard/report |
-| **+ New Chat** | `/chat` | NL → SQL chat with streaming agent responses |
-| **Recent** | `/chat/history` | Past chat sessions (click to view) |
+| **Dashboard** | `/` | 3×3 grid — 3 KPI cards + 6 recharts charts |
+| **Chat** | `/chat` | NL-to-SQL chat with SSE streaming, SQL viewer, pipeline steps panel |
+| **Recent** | `/recent` | Past chat sessions with relative timestamps, click to resume |
+| **Requests** | `/requests` | Dashboard request lifecycle — Drafts / Active / Closed tabs, comment threads |
+
+The login page at `/login` is the unauthenticated entry point. All other routes redirect there if no valid JWT cookie (`auth_token`) is present. This session is independent of the Operations Center — logging into one portal does not authenticate the other.
 
 ## Databases
 

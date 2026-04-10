@@ -14,6 +14,11 @@ DOMAIN_DESCRIPTION = os.getenv("DOMAIN_DESCRIPTION", "FMCG supply chain analytic
 LLM_REQUEST_TIMEOUT = float(os.getenv("LLM_REQUEST_TIMEOUT", "60"))
 PIPELINE_TIMEOUT_SECONDS = float(os.getenv("PIPELINE_TIMEOUT_SECONDS", "180"))
 
+# Auth
+PORTAL_USERNAME = os.getenv("PORTAL_USERNAME", "testuser")
+PORTAL_PASSWORD = os.getenv("PORTAL_PASSWORD", "testpass")
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-in-prod")
+
 # PostgreSQL
 POSTGRES_URI = os.getenv("POSTGRES_URI", "postgresql://genbi:genbi@localhost:5432/genbi")
 

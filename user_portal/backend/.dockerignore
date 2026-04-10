@@ -3,3 +3,6 @@ __pycache__
 .env*
 *.pyc
 *.pyo
+tests/
+pytest.ini
+.pytest_cache
