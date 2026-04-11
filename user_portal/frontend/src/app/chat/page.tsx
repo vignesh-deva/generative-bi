@@ -1,0 +1,1012 @@
+"use client";
+
+import { useState, useRef, useEffect, FormEvent, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  Send, Bot, User, Loader2, Sparkles, Table2,
+  ChevronRight, ChevronDown, FilePlus, ThumbsUp, ThumbsDown,
+  BarChart3, X,
+} from "lucide-react";
+import {
+  emitSessionCreated,
+  fetchChartsMetadata,
+  fetchMessages,
+  submitFeedback,
+  type ChartMeta,
+  type ChatContext,
+  type FeedbackVote,
+} from "@/lib/api";
+import RequestModal from "./RequestModal";
+import ChartPickerPopover from "./ChartPickerPopover";
+
+type AttachedChart = {
+  chart_id: string;
+  title: string;
+  sql_query: string;
+};
+
+type Message = {
+  id: string;                     // local React key
+  serverMessageId?: string | null; // stable id known to the backend (for feedback)
+  role: "user" | "assistant";
+  content: string;
+  sql?: string;
+  steps?: string[];
+  stepsOpen?: boolean;
+  timestamp: Date;
+  feedback?: FeedbackVote;
+  feedbackComment?: string | null;
+  feedbackOpen?: boolean;         // comment editor visibility
+  feedbackDraft?: string;         // in-progress comment text
+  attachedChart?: AttachedChart;  // chart attached by the user via slash command
+};
+
+// ── Steps panel ───────────────────────────────────────────────────
+
+function StepsPanel({
+  steps,
+  isOpen,
+  isStreaming,
+  onToggle,
+}: {
+  steps: string[];
+  isOpen: boolean;
+  isStreaming: boolean;
+  onToggle: () => void;
+}) {
+  const listRef = useRef<HTMLUListElement>(null);
+
+  // Auto-scroll to latest step whenever a new one arrives or panel opens
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [steps.length, isOpen]);
+
+  if (!isOpen) {
+    return (
+      <button
+        onClick={onToggle}
+        className="mb-2 flex items-center gap-1.5 rounded-full border border-[var(--card-border)] bg-slate-50 px-2.5 py-1 text-[11px] text-[var(--text-muted)] transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+      >
+        <ChevronRight size={11} />
+        {steps.length} step{steps.length !== 1 ? "s" : ""}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mb-3 rounded-lg border border-[var(--card-border)] bg-slate-50 px-3 py-2">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center justify-between text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+      >
+        <span className="text-[10px] uppercase tracking-wide text-slate-400">
+          Reasoning
+        </span>
+        <ChevronDown size={11} />
+      </button>
+
+      {/* Fixed height + scroll + auto-scroll to latest */}
+      <ul
+        ref={listRef}
+        className="mt-2 max-h-36 space-y-1.5 overflow-y-auto pr-1 scrollbar-thin"
+      >
+        {steps.map((step, i) => {
+          const isActive = isStreaming && i === steps.length - 1;
+          const isDone = !isActive;
+          return (
+            <li key={i} className="flex items-center gap-2 text-[11px]">
+              {isActive ? (
+                <Loader2 size={10} className="shrink-0 animate-spin text-blue-500" />
+              ) : (
+                <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-300" />
+              )}
+              <span
+                className={
+                  isActive
+                    ? "font-medium text-blue-600"
+                    : isDone
+                    ? "text-slate-400"
+                    : "text-[var(--text-muted)]"
+                }
+              >
+                {step}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// ── Types ─────────────────────────────────────────────────────────
+
+type HistoryMessage = {
+  message_id?: string | null;
+  role: "user" | "assistant";
+  content: string;
+  sql_query?: string | null;
+  chart_context?: AttachedChart | null;
+  feedback?: FeedbackVote;
+  feedback_comment?: string | null;
+  created_at: string;
+};
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+// Per-session message cache — survives navigation within the tab
+const sessionMessageCache = new Map<string, Message[]>();
+
+// ── Chat page ─────────────────────────────────────────────────────
+
+function ChatPageInner() {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [streaming, setStreaming] = useState(false);
+  const [showSql, setShowSql] = useState<string | null>(null);
+  const [requestModal, setRequestModal] = useState<{
+    title: string;
+    context: ChatContext;
+  } | null>(null);
+  const [requestFlash, setRequestFlash] = useState<string | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  // Chart-attachment state (slash-command picker)
+  const [charts, setCharts] = useState<ChartMeta[]>([]);
+  const [attachedChart, setAttachedChart] = useState<AttachedChart | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [slashQuery, setSlashQuery] = useState("");
+  const [pickerActive, setPickerActive] = useState(0);
+  const pickerMatchesRef = useRef<ChartMeta[]>([]);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const streamingMsgIdRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const currentMessagesRef = useRef<Message[]>([]);
+  const searchParams = useSearchParams();
+  const sessionParam = searchParams.get("session");
+
+  function toggleSteps(msgId: string) {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msgId ? { ...m, stepsOpen: !m.stepsOpen } : m))
+    );
+  }
+
+  function openRequestModalForMessage(msg: Message) {
+    const idx = messages.findIndex((m) => m.id === msg.id);
+    if (idx < 0) return;
+    // Previous user message (the question this response answers)
+    let question = "";
+    for (let i = idx - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        question = messages[i].content;
+        break;
+      }
+    }
+    // Last 6 messages ending at this assistant message (inclusive)
+    const start = Math.max(0, idx - 5);
+    const history = messages.slice(start, idx + 1).map((m) => ({
+      role: m.role,
+      content: m.content,
+      created_at: m.timestamp.toISOString(),
+    }));
+    const context: ChatContext = {
+      message_id: msg.id,
+      question,
+      answer: msg.content,
+      sql: msg.sql ?? null,
+      history,
+    };
+    const initialTitle = (question || msg.content).slice(0, 80);
+    setRequestModal({ title: initialTitle, context });
+  }
+
+  function onRequestResult(kind: "draft" | "submitted") {
+    setRequestFlash(
+      kind === "submitted" ? "Request submitted." : "Draft saved."
+    );
+    setTimeout(() => setRequestFlash(null), 3500);
+  }
+
+  function patchMessage(localId: string, patch: Partial<Message>) {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === localId ? { ...m, ...patch } : m))
+    );
+  }
+
+  async function handleVote(msg: Message, vote: "up" | "down") {
+    if (!msg.serverMessageId) return; // assistant reply not yet persisted
+    const nextVote: "up" | "down" | null = msg.feedback === vote ? null : vote;
+    const previous = { feedback: msg.feedback ?? null, feedbackComment: msg.feedbackComment ?? null };
+    patchMessage(msg.id, { feedback: nextVote });
+    try {
+      await submitFeedback(msg.serverMessageId, nextVote, msg.feedbackComment ?? null);
+    } catch {
+      // rollback on failure
+      patchMessage(msg.id, previous);
+    }
+  }
+
+  async function handleSaveComment(msg: Message) {
+    if (!msg.serverMessageId) return;
+    const comment = (msg.feedbackDraft ?? "").trim() || null;
+    const previous = { feedbackComment: msg.feedbackComment ?? null };
+    patchMessage(msg.id, {
+      feedbackComment: comment,
+      feedbackOpen: false,
+      feedbackDraft: undefined,
+    });
+    try {
+      await submitFeedback(msg.serverMessageId, msg.feedback ?? null, comment);
+    } catch {
+      patchMessage(msg.id, { ...previous, feedbackOpen: true });
+    }
+  }
+
+  // Load session history whenever the ?session= param changes
+  useEffect(() => {
+    // Persist the outgoing session's messages before doing anything.
+    // Trim any trailing assistant reply with no content — the stream was aborted
+    // before tokens arrived, so caching it would leave an empty/stuck bubble.
+    if (
+      sessionIdRef.current &&
+      sessionIdRef.current !== sessionParam &&
+      currentMessagesRef.current.length > 0
+    ) {
+      const msgs = currentMessagesRef.current;
+      const last = msgs[msgs.length - 1];
+      const toCache =
+        last?.role === "assistant" && !last.content
+          ? msgs.slice(0, -1)
+          : msgs;
+      sessionMessageCache.set(sessionIdRef.current, toCache);
+    }
+
+    if (!sessionParam) {
+      // "New chat" — just clear the view. The previous session is already
+      // preserved in the cache above.
+      abortRef.current?.abort();
+      // Clear streaming state immediately so no ghost spinners linger.
+      setStreaming(false);
+      streamingMsgIdRef.current = null;
+      sessionIdRef.current = null;
+      setMessages([]);
+      currentMessagesRef.current = [];
+      return;
+    }
+    if (sessionIdRef.current === sessionParam) return;
+
+    // Cancel any in-flight stream from the old session and clear streaming
+    // state immediately — without this, cached messages briefly show an
+    // active spinner until the AbortError finally block fires.
+    abortRef.current?.abort();
+    setStreaming(false);
+    streamingMsgIdRef.current = null;
+
+    sessionIdRef.current = sessionParam;
+
+    // Restore from cache — avoids losing an in-progress or just-completed reply.
+    // Always call setLoadingHistory(false) here: if a prior navigation started
+    // a fetch that was abandoned before completing, loadingHistory would otherwise
+    // stay true forever, hiding the cached messages behind a spinner.
+    const cached = sessionMessageCache.get(sessionParam);
+    if (cached && cached.length > 0) {
+      setMessages(cached);
+      currentMessagesRef.current = cached;
+      setLoadingHistory(false);
+      return;
+    }
+
+    setLoadingHistory(true);
+    setMessages([]);
+    currentMessagesRef.current = [];
+
+    const targetSession = sessionParam;
+    fetchMessages<HistoryMessage[]>(targetSession)
+      .then((data) => {
+        // Discard stale results if the user has since navigated elsewhere
+        if (sessionIdRef.current !== targetSession) return;
+        const msgs = data.map((m) => ({
+          id: crypto.randomUUID(),
+          serverMessageId: m.message_id ?? null,
+          role: m.role,
+          content: m.content,
+          sql: m.sql_query ?? undefined,
+          attachedChart: m.chart_context ?? undefined,
+          timestamp: new Date(m.created_at),
+          feedback: m.feedback ?? null,
+          feedbackComment: m.feedback_comment ?? null,
+        }));
+        setMessages(msgs);
+        currentMessagesRef.current = msgs;
+        sessionMessageCache.set(targetSession, msgs);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (sessionIdRef.current === targetSession) setLoadingHistory(false);
+      });
+  }, [sessionParam]);
+
+  // Keep ref in sync so session-change effect can read latest messages without stale closure
+  useEffect(() => {
+    currentMessagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  useEffect(() => {
+    if (!loadingHistory) inputRef.current?.focus();
+  }, [loadingHistory]);
+
+  // Fetch available charts once on mount for the slash-command picker.
+  useEffect(() => {
+    fetchChartsMetadata()
+      .then(setCharts)
+      .catch(() => setCharts([]));
+  }, []);
+
+  // ── Slash-command picker plumbing ────────────────────────────────
+  // When the user types `/` at the start (or after whitespace) we open the
+  // chart picker and track what they've typed AFTER the slash as the query.
+  // On selection we strip the entire `/query` fragment from the input.
+
+  function maybeOpenPickerFromInput(value: string, cursor: number) {
+    // Look backwards from the cursor for a slash that starts a "slash token".
+    // A slash token starts at position 0 or right after whitespace.
+    let slashPos = -1;
+    for (let i = cursor - 1; i >= 0; i--) {
+      const ch = value[i];
+      if (ch === "/") {
+        if (i === 0 || /\s/.test(value[i - 1])) slashPos = i;
+        break;
+      }
+      if (/\s/.test(ch)) break;
+    }
+    if (slashPos < 0) {
+      if (pickerOpen) setPickerOpen(false);
+      return;
+    }
+    const query = value.slice(slashPos + 1, cursor);
+    // Disallow spaces in the slash query — if the user typed past a space
+    // the token is over.
+    if (/\s/.test(query)) {
+      if (pickerOpen) setPickerOpen(false);
+      return;
+    }
+    setSlashQuery(query);
+    setPickerActive(0);
+    if (!pickerOpen) setPickerOpen(true);
+  }
+
+  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value;
+    setInput(value);
+    const cursor = e.target.selectionStart ?? value.length;
+    maybeOpenPickerFromInput(value, cursor);
+  }
+
+  function closePicker() {
+    setPickerOpen(false);
+    setSlashQuery("");
+    setPickerActive(0);
+  }
+
+  function selectChartFromPicker(chart: ChartMeta) {
+    // Strip the "/<query>" fragment from the input at the current cursor.
+    const el = inputRef.current;
+    const value = input;
+    const cursor = el?.selectionStart ?? value.length;
+    // Find the slash again (mirrors maybeOpenPickerFromInput)
+    let slashPos = -1;
+    for (let i = cursor - 1; i >= 0; i--) {
+      const ch = value[i];
+      if (ch === "/") {
+        if (i === 0 || /\s/.test(value[i - 1])) slashPos = i;
+        break;
+      }
+      if (/\s/.test(ch)) break;
+    }
+    const before = slashPos >= 0 ? value.slice(0, slashPos) : value;
+    const after = value.slice(cursor);
+    // Collapse a trailing space from `before` + leading space from `after`
+    // so we don't leave dangling whitespace where the slash token used to be.
+    const joined = (before + after).replace(/\s{2,}/g, " ").replace(/^\s+/, "");
+    setInput(joined);
+    setAttachedChart({
+      chart_id: chart.chart_id,
+      title: chart.title,
+      sql_query: chart.sql_query,
+    });
+    closePicker();
+    // Restore focus + put cursor where the slash used to be
+    setTimeout(() => {
+      const node = inputRef.current;
+      if (!node) return;
+      node.focus();
+      const pos = Math.min(before.length, joined.length);
+      node.setSelectionRange(pos, pos);
+    }, 0);
+  }
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text || streaming) return;
+
+    const sentChart = attachedChart;
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: text,
+      timestamp: new Date(),
+      attachedChart: sentChart ?? undefined,
+    };
+    const assistantId = crypto.randomUUID();
+    const assistantMsg: Message = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      timestamp: new Date(),
+    };
+
+    // Local source of truth for this stream's full message list.
+    // Seeding from the ref (not state) guarantees we start from the currently
+    // displayed session's messages, not a stale render closure.
+    let streamMessages: Message[] = [
+      ...currentMessagesRef.current,
+      userMsg,
+      assistantMsg,
+    ];
+
+    // Capture the session this stream belongs to BEFORE any async work.
+    // For a brand-new chat, this will be null and we'll adopt the returned id.
+    const streamSessionId = sessionIdRef.current;
+
+    // Commit initial state and cancel any prior in-flight stream.
+    setMessages(streamMessages);
+    currentMessagesRef.current = streamMessages;
+    if (streamSessionId) {
+      sessionMessageCache.set(streamSessionId, streamMessages);
+    }
+    streamingMsgIdRef.current = assistantId;
+    setInput("");
+    setAttachedChart(null);
+    closePicker();
+    setStreaming(true);
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    // Resolved once the response headers arrive. Until then, we haven't
+    // started streaming tokens so there's nothing to cache.
+    let activeSessionId: string | null = streamSessionId;
+
+    // Commit streamMessages: always update the cache for the stream's session,
+    // and update React state only if the user is still viewing that session.
+    function commit() {
+      if (activeSessionId) {
+        sessionMessageCache.set(activeSessionId, streamMessages);
+      }
+      if (sessionIdRef.current === activeSessionId) {
+        setMessages(streamMessages);
+        currentMessagesRef.current = streamMessages;
+      }
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          query: text,
+          session_id: streamSessionId,
+          chart_context: sentChart ?? null,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+
+      const returnedSessionId = res.headers.get("X-Session-Id");
+      if (returnedSessionId && !streamSessionId) {
+        // New chat just got a session id — adopt it, migrate cache, and
+        // notify the sidebar so it appears without a refresh.
+        sessionIdRef.current = returnedSessionId;
+        activeSessionId = returnedSessionId;
+        sessionMessageCache.set(returnedSessionId, streamMessages);
+        window.history.replaceState(
+          null,
+          "",
+          `/chat?session=${returnedSessionId}`,
+        );
+        emitSessionCreated({
+          session_id: returnedSessionId,
+          title: text.slice(0, 80),
+          updated_at: new Date().toISOString(),
+        });
+      } else if (!activeSessionId && returnedSessionId) {
+        activeSessionId = returnedSessionId;
+      }
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = "";
+      let sql = "";
+      let steps: string[] = [];
+      let firstTokenSeen = false;
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = line.slice(6);
+            if (data === "[DONE]") break;
+
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === "message_id") {
+                const serverMessageId = parsed.content as string;
+                streamMessages = streamMessages.map((m) =>
+                  m.id === assistantId ? { ...m, serverMessageId } : m,
+                );
+                continue;
+              } else if (parsed.type === "step") {
+                steps = [...steps, parsed.content];
+              } else if (parsed.type === "token") {
+                if (!firstTokenSeen) {
+                  firstTokenSeen = true;
+                  streamMessages = streamMessages.map((m) =>
+                    m.id === assistantId ? { ...m, stepsOpen: false } : m,
+                  );
+                }
+                accumulated += parsed.content;
+              } else if (parsed.type === "sql") {
+                sql = parsed.content;
+              } else if (parsed.type === "error") {
+                accumulated = parsed.content;
+              }
+            } catch {
+              accumulated += data;
+            }
+          }
+
+          streamMessages = streamMessages.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  content: accumulated,
+                  sql: sql || undefined,
+                  steps: steps.length > 0 ? steps : undefined,
+                  stepsOpen: m.stepsOpen ?? true,
+                }
+              : m,
+          );
+          commit();
+        }
+      }
+
+      if (!accumulated) {
+        streamMessages = streamMessages.map((m) =>
+          m.id === assistantId
+            ? { ...m, content: "Sorry, I couldn't generate a response." }
+            : m,
+        );
+        commit();
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      streamMessages = streamMessages.map((m) =>
+        m.id === assistantId
+          ? {
+              ...m,
+              content: "Failed to connect to the server. Please try again.",
+            }
+          : m,
+      );
+      commit();
+    } finally {
+      streamingMsgIdRef.current = null;
+      setStreaming(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // When the chart picker is open, arrow keys/enter/escape drive it.
+    if (pickerOpen) {
+      const matches = pickerMatchesRef.current;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (matches.length > 0) {
+          setPickerActive((idx) => (idx + 1) % matches.length);
+        }
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (matches.length > 0) {
+          setPickerActive((idx) => (idx - 1 + matches.length) % matches.length);
+        }
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const pick = matches[pickerActive];
+        if (pick) selectChartFromPicker(pick);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closePicker();
+        return;
+      }
+    }
+
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  }
+
+  if (loadingHistory) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-7 w-7 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
+          <p className="text-sm text-[var(--text-muted)]">Loading conversation…</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Header */}
+      <div className="border-b border-[var(--card-border)] pb-3">
+        <h1 className="text-xl font-bold text-[var(--text-primary)]">Chat</h1>
+        <p className="mt-0.5 text-sm text-[var(--text-muted)]">
+          Ask questions about your FMCG supply chain data
+        </p>
+      </div>
+
+      {requestFlash && (
+        <div className="fixed right-6 top-6 z-40 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-700 shadow-md">
+          {requestFlash}
+        </div>
+      )}
+
+      {requestModal && (
+        <RequestModal
+          open={!!requestModal}
+          onClose={() => setRequestModal(null)}
+          initialTitle={requestModal.title}
+          chatContext={requestModal.context}
+          sessionId={sessionIdRef.current}
+          onResult={onRequestResult}
+        />
+      )}
+
+      {/* Messages area */}
+      <div className="flex-1 overflow-y-auto py-5">
+        {messages.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50">
+              <Sparkles size={24} className="text-blue-500" />
+            </div>
+            <div>
+              <p className="text-base font-semibold text-[var(--text-primary)]">
+                Ask anything about your data
+              </p>
+              <p className="mt-1 max-w-xs text-sm text-[var(--text-muted)]">
+                Query your FMCG supply chain database, surface insights,
+                and explore trends in plain English.
+              </p>
+            </div>
+            <div className="mt-1 flex flex-wrap justify-center gap-2">
+              {[
+                "What are the top selling products?",
+                "Show monthly revenue trend",
+                "Which zone has highest sales?",
+              ].map((suggestion) => (
+                <button
+                  key={suggestion}
+                  onClick={() => {
+                    setInput(suggestion);
+                    setTimeout(() => inputRef.current?.focus(), 0);
+                  }}
+                  className="rounded-lg border border-[var(--card-border)] bg-white px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* Constrain message column width for readability */
+          <div className="mx-auto w-full max-w-3xl space-y-5 px-1">
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex gap-3 ${
+                  msg.role === "user" ? "justify-end" : "justify-start"
+                }`}
+              >
+                {msg.role === "assistant" && (
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 mt-0.5">
+                    <Bot size={14} className="text-blue-600" />
+                  </div>
+                )}
+
+                <div
+                  className={`max-w-[78%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                    msg.role === "user"
+                      ? "bg-blue-600 text-white"
+                      : "border border-[var(--card-border)] bg-white text-[var(--text-primary)] shadow-sm"
+                  }`}
+                >
+                  {/* Thinking indicator — three staggered dots */}
+                  {msg.role === "assistant" &&
+                  !msg.content &&
+                  !msg.steps &&
+                  streaming ? (
+                    <div className="flex items-center gap-1 py-1">
+                      {[0, 150, 300].map((delay) => (
+                        <span
+                          key={delay}
+                          className="h-2 w-2 rounded-full bg-slate-300 animate-bounce"
+                          style={{ animationDelay: `${delay}ms` }}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      {msg.steps && msg.steps.length > 0 && (
+                        <StepsPanel
+                          steps={msg.steps}
+                          isOpen={msg.stepsOpen ?? false}
+                          isStreaming={streaming && msg.id === streamingMsgIdRef.current}
+                          onToggle={() => toggleSteps(msg.id)}
+                        />
+                      )}
+                      {msg.role === "user" && msg.attachedChart && (
+                        <div className="mb-2 flex items-center gap-1.5 rounded-md border border-blue-300/50 bg-blue-500/30 px-2 py-1 text-[11px] text-blue-50">
+                          <BarChart3 size={11} className="shrink-0" />
+                          <span className="truncate font-medium">
+                            {msg.attachedChart.title}
+                          </span>
+                        </div>
+                      )}
+                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                      {msg.role === "assistant" && msg.content && (
+                        <div className="mt-2.5 flex items-center gap-3">
+                          {msg.sql && (
+                            <button
+                              onClick={() =>
+                                setShowSql(showSql === msg.id ? null : msg.id)
+                              }
+                              className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+                            >
+                              <Table2 size={12} />
+                              {showSql === msg.id ? "Hide SQL" : "View SQL"}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openRequestModalForMessage(msg)}
+                            className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-blue-600"
+                          >
+                            <FilePlus size={12} />
+                            Request Dashboard
+                          </button>
+                          <div className="ml-auto flex items-center gap-1">
+                            <button
+                              onClick={() => handleVote(msg, "up")}
+                              disabled={!msg.serverMessageId}
+                              title="Helpful"
+                              className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors disabled:opacity-40 ${
+                                msg.feedback === "up"
+                                  ? "bg-green-50 text-green-600"
+                                  : "text-[var(--text-muted)] hover:bg-slate-100 hover:text-[var(--text-secondary)]"
+                              }`}
+                            >
+                              <ThumbsUp size={12} />
+                            </button>
+                            <button
+                              onClick={() => handleVote(msg, "down")}
+                              disabled={!msg.serverMessageId}
+                              title="Not helpful"
+                              className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors disabled:opacity-40 ${
+                                msg.feedback === "down"
+                                  ? "bg-red-50 text-red-600"
+                                  : "text-[var(--text-muted)] hover:bg-slate-100 hover:text-[var(--text-secondary)]"
+                              }`}
+                            >
+                              <ThumbsDown size={12} />
+                            </button>
+                            <button
+                              onClick={() =>
+                                patchMessage(msg.id, {
+                                  feedbackOpen: !msg.feedbackOpen,
+                                  feedbackDraft:
+                                    msg.feedbackOpen
+                                      ? msg.feedbackDraft
+                                      : msg.feedbackComment ?? "",
+                                })
+                              }
+                              disabled={!msg.serverMessageId}
+                              className="ml-1 text-[11px] text-[var(--text-muted)] hover:text-blue-600 disabled:opacity-40"
+                            >
+                              {msg.feedbackComment
+                                ? "Edit note"
+                                : msg.feedbackOpen
+                                ? "Cancel"
+                                : "Add note"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {msg.role === "assistant" && msg.feedbackOpen && (
+                        <div className="mt-2 rounded-lg border border-[var(--card-border)] bg-slate-50 p-2">
+                          <textarea
+                            value={msg.feedbackDraft ?? ""}
+                            onChange={(e) =>
+                              patchMessage(msg.id, { feedbackDraft: e.target.value })
+                            }
+                            rows={2}
+                            placeholder="What was helpful or what went wrong?"
+                            className="w-full resize-none rounded-md border border-[var(--card-border)] bg-white px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-blue-300"
+                          />
+                          <div className="mt-1.5 flex justify-end gap-2">
+                            <button
+                              onClick={() =>
+                                patchMessage(msg.id, {
+                                  feedbackOpen: false,
+                                  feedbackDraft: undefined,
+                                })
+                              }
+                              className="rounded-md px-2 py-1 text-[11px] text-[var(--text-muted)] hover:bg-slate-100"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => handleSaveComment(msg)}
+                              className="rounded-md bg-blue-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-blue-700"
+                            >
+                              Save note
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {msg.role === "assistant" &&
+                        !msg.feedbackOpen &&
+                        msg.feedbackComment && (
+                          <p className="mt-1.5 text-[11px] italic text-[var(--text-muted)]">
+                            Note: {msg.feedbackComment}
+                          </p>
+                        )}
+                      {msg.sql && msg.role === "user" && (
+                        <button
+                          onClick={() =>
+                            setShowSql(showSql === msg.id ? null : msg.id)
+                          }
+                          className="mt-2.5 flex items-center gap-1.5 text-xs text-blue-200 hover:text-white"
+                        >
+                          <Table2 size={12} />
+                          {showSql === msg.id ? "Hide SQL" : "View SQL"}
+                        </button>
+                      )}
+                      {showSql === msg.id && msg.sql && (
+                        <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-300">
+                          <code>{msg.sql}</code>
+                        </pre>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {msg.role === "user" && (
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-600 mt-0.5">
+                    <User size={14} className="text-white" />
+                  </div>
+                )}
+              </div>
+            ))}
+            <div ref={bottomRef} />
+          </div>
+        )}
+      </div>
+
+      {/* Input bar — constrained width, compact */}
+      <form
+        onSubmit={handleSubmit}
+        className="relative border-t border-[var(--card-border)] pt-3 pb-1"
+      >
+        <ChartPickerPopover
+          open={pickerOpen}
+          charts={charts}
+          excludeIds={attachedChart ? [attachedChart.chart_id] : []}
+          query={slashQuery}
+          activeIndex={pickerActive}
+          onActiveIndexChange={setPickerActive}
+          onSelect={selectChartFromPicker}
+          onClose={closePicker}
+          onMatchesChange={(m) => {
+            pickerMatchesRef.current = m;
+          }}
+        />
+        <div className="mx-auto w-full max-w-3xl">
+          {attachedChart && (
+            <div className="mb-2 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-1.5 text-xs text-blue-700">
+              <BarChart3 size={12} className="shrink-0" />
+              <span className="truncate font-medium">{attachedChart.title}</span>
+              <span className="text-[10px] uppercase tracking-wide text-blue-500">
+                attached
+              </span>
+              <button
+                type="button"
+                onClick={() => setAttachedChart(null)}
+                className="ml-auto flex h-5 w-5 items-center justify-center rounded-md text-blue-500 hover:bg-blue-100 hover:text-blue-700"
+                title="Detach chart"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+          <div className="flex items-end gap-2 rounded-xl border border-[var(--card-border)] bg-white px-4 py-3 shadow-sm transition-shadow focus-within:border-blue-300 focus-within:shadow-md">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyUp={(e) => {
+                // keep picker state in sync after cursor-only movements
+                const el = e.currentTarget;
+                maybeOpenPickerFromInput(el.value, el.selectionStart ?? 0);
+              }}
+              onKeyDown={handleKeyDown}
+              onBlur={() => {
+                // Small delay so a click on a picker item still registers.
+                setTimeout(() => {
+                  if (document.activeElement !== inputRef.current) closePicker();
+                }, 150);
+              }}
+              placeholder="Ask a question about your data… (type / to attach a chart)"
+              rows={1}
+              className="max-h-36 min-h-[52px] flex-1 resize-none bg-transparent py-1 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none"
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || streaming}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600"
+            >
+              {streaming ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Send size={14} />
+              )}
+            </button>
+          </div>
+          <p className="mt-1.5 text-center text-[11px] text-[var(--text-muted)]">
+            AI-generated — verify important figures before acting on them.
+          </p>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense>
+      <ChatPageInner />
+    </Suspense>
+  );
+}

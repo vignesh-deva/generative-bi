@@ -1,14 +1,150 @@
 # Generative BI Agent
 
-A local AI-powered BI tool where users ask business questions in natural language and receive data insights generated automatically from an FMCG supply chain dataset.
+An AI-powered BI tool where users ask business questions in natural language and receive data insights generated automatically from an FMCG supply chain dataset.
 
 ---
 
 ## Overview
 
-Business users interact with the system through a chat interface. Questions are processed by an agentic backend that classifies intent, retrieves context, generates and validates SQL, executes queries, and returns structured insights. A separate Charts dashboard displays saved insight cards. Business users can escalate insights to the BI team via the Requests workflow.
+Business users interact with the system through a chat interface. Questions are processed by a **multi-stage agentic pipeline** (orchestrated with LangGraph) that rewrites follow-ups, classifies intent, disambiguates queries, links relevant schema, generates and validates SQL, self-repairs on errors, and streams structured insights back via SSE. A separate Dashboard page displays static chart cards, and business users can submit requests for new dashboards.
 
-Everything runs locally — no cloud services required.
+A dedicated **Operations Center** portal (separate app) allows the BI/dev team to review feedback, curate few-shot SQL examples in the vector store, and manage dashboard development tickets.
+
+All services run via **Docker Compose**. LLM and embedding models are consumed via API — works with any OpenAI-compatible endpoint (cloud or self-hosted).
+
+---
+
+## Agent Pipeline Design
+
+> **This is the core of the system.** Open the interactive design document in your browser:
+>
+> **[`docs/agent-pipeline-design.html`](docs/agent-pipeline-design.html)**
+>
+> To view: open the file directly in any browser, or run `start docs/agent-pipeline-design.html` (Windows) / `open docs/agent-pipeline-design.html` (Mac).
+
+The pipeline is a multi-stage agentic system with parallel fan-out, a self-repair loop, and a small/large model split for cost and latency optimization. The full graph is implemented in LangGraph — see [`user_portal/backend/graph/pipeline.py`](user_portal/backend/graph/pipeline.py).
+
+```
+Stage 0: Context Preparation
+├── History Fetch                       Last 10 turns from MongoDB
+└── Query Rewriter [small]              Resolve follow-up references into standalone queries
+
+Stage 1: Pre-processing (3-way parallel fan-out)
+├── Guardrails Agent [small]            LLM-based safety check
+├── Classifier Agent [small]            Intent: analytics / chitchat / history / ambiguous
+└── RAG Agent [small + tool]            Few-shot retrieval — pgvector cosine similarity
+         │
+         ▼ fan-in → route on merged state
+         ├── blocked / chitchat / history / ambiguous ──► Response Agent [small] ──► exit
+         └── analytics ─────────────────────────────────────────────────────────┐
+                                                                                ▼
+Stage 1B: Context Enrichment
+└── Schema Linker [small + tool]        Select relevant tables + inject Semantic Layer
+                                        (metric defs, FK join paths, value samples, rules)
+
+Stage 2: SQL Generation
+└── SQL Agent [large]
+    ├── Adapt path  (RAG similarity ≥ 0.85) — skip decomposition, adapt matched SQL
+    ├── Decomposer [small]              Decide: single-step or multi-step query
+    └── Sub-query Generator [large]     Generate SQL per sub-query
+
+Stage 3: Validation + Self-repair  (max 3 iterations per loop)
+│
+├── EXPLAIN dry-run (PostgreSQL)        Syntax/schema check — zero LLM cost
+│   └── on fail ──► Error Classifier [small] ──► Correction Agent [large] ──► retry dry-run
+│
+├── Execute query (read-only PostgreSQL transaction)
+│   ├── on adapt path ────────────────────────────────────────────────────────────────┐
+│   └── on execution error ──► Insight Agent (error message) ──► exit                 │
+│                                                                                      ▼
+└── Logic Check Agent [small + tools]   Does the result actually answer the question? │
+    └── on fail ──► Correction Agent [large] ──► reset dry-run budget ──► retry loop  │
+                                                                                       │
+Stage 4: Response Synthesis  ◄─────────────────────────────────────────────────────────┘
+└── Insight Agent [large]               Generate NL business insight from query result
+         │
+         ▼
+    SSE stream → Frontend
+```
+
+<details>
+<summary><strong>Agent Inventory, Error Taxonomy &amp; Timing — full reference (click to expand)</strong></summary>
+
+### Agent Inventory
+
+| Agent | Model | Purpose | Tools |
+|---|---|---|---|
+| Query Rewriter | small | Resolves follow-up references (pronouns, co-references, ellipsis) into a self-contained standalone query using recent chat history. Skips the LLM call entirely when there is no history. Chart context (`chart_id`, `title`, `sql_query`) injected when user attaches a dashboard chart via the slash-command picker. | none |
+| Guardrails | small | LLM-based safety — prompt injection, SQL injection in NL, system prompt extraction | none |
+| Classifier + Disambiguator | small | Intent routing (chitchat / history / analytics) + ambiguity detection. Receives recent chat history for follow-up resolution. Streams clarification question if ambiguous. | none |
+| Response Agent | small | Handles all non-analytics intents. Blocked: polite refusal. Ambiguous: asks clarifying question. Chitchat: conversational reply. History: fetches recent chat from MongoDB, summarizes or answers. | `fetch_chat_history` — MongoDB session/message lookup |
+| RAG Agent | small | Retrieve similar NL→SQL examples for few-shot context. Runs in parallel with Guardrails + Classifier during Stage 1. | `search_fewshots` — pgvector cosine similarity |
+| Schema Linker | small | LLM-based table selection — identifies the minimal set of tables needed, fetches their DDL + value samples (so the SQL Agent uses exact entity names, not ILIKE guesses). In the same pass, injects semantic context: metric definitions, FK join paths, business rules. Runs sequentially in Stage 1B after the fan-in router. Chart context injected when attached. | `list_tables`, `pull_schema`, `value_samples`, `get_semantic_context` |
+| SQL Agent | large | Core SQL generation with CoT reasoning. RAG few-shot examples injected as exemplars. Receives today's date and value samples from Schema Agent — uses exact values rather than ILIKE guesses. | `decompose`, `generate_subquery` |
+| &emsp;Decomposer *(sub-agent)* | small | Decide single-step vs multi-step, plan sub-queries. If RAG similarity ≥ 0.85, skips decomposition and adapts the matched query directly. | — |
+| &emsp;Sub-query Gen *(sub-agent)* | large | Generate SQL for each sub-query (parallelizable) | — |
+| Error Classifier | small | Categorize errors: syntax, schema, logic, runtime | none |
+| Correction Agent | large | Targeted SQL fix based on error type. Has full access to schema and sample values for informed corrections. | `pull_schema`, `value_samples`, `dry_run_explain` |
+| Validation Agent (Logic Check) | small | Post-execution logic check via agentic tool-calling loop (max 3 rounds). LLM verifies the SQL answers the question, checking dates, column values, join paths, and running test queries before rendering a verdict. Falls back to single-shot for providers without function calling. | `get_current_date`, `lookup_column`, `get_schema`, `get_join_info`, `run_test_query` |
+| Insight Agent | large | NL business insight — cites numbers, explains reasoning, flags assumptions. Chart context injected when attached so the insight is framed relative to the referenced chart. | — |
+
+### Error Taxonomy
+
+| Type | Source | Example | Correction Strategy |
+|---|---|---|---|
+| `syntax` | EXPLAIN | syntax error at or near "FORM" | Show exact Postgres error message |
+| `schema` | EXPLAIN | relation "product" does not exist | Re-inject linked schema, highlight correct name (`products`) |
+| `logic` | Logic Check | Returns all-time revenue but user asked for Q1 | Provide logic feedback + original query for re-generation |
+| `runtime` | EXPLAIN / Execute | column "name" is ambiguous | Show ambiguous reference + tables involved |
+
+### LLM Call Count
+
+| Path | LLM calls |
+|---|---|
+| Non-analytics (chitchat / blocked / ambiguous) | 4 — Rewriter + Guardrails + Classifier + Response Agent |
+| Analytics, adapt path (strong RAG match ≥ 0.85) | ~7 — skips decomposition and logic check |
+| Analytics, full path, no retries | ~10 |
+| Analytics, full path, max retries (3) | ~16 — Error Classifier + Correction per retry + Logic correction |
+
+Query Rewriter is skipped entirely when there is no chat history.
+
+</details>
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Frontend** | Next.js 14 (App Router), Tailwind CSS, Recharts |
+| **Backend** | FastAPI (Python), Uvicorn, asyncpg, Motor |
+| **Agent Orchestration** | LangGraph v2 — parallel fan-out, conditional edges, self-repair loop |
+| **LLM / Embeddings** | Model-agnostic — any OpenAI-compatible endpoint (OpenAI, Anthropic, Ollama, LM Studio) |
+| **Business DB** | PostgreSQL 17 + pgvector extension |
+| **Chat / Session DB** | MongoDB 7 |
+| **Auth** | JWT (python-jose) — separate tokens per portal |
+| **Streaming** | Server-Sent Events (SSE) |
+| **Deployment** | Docker Compose (6 services) |
+
+---
+
+## Architecture
+
+![System Architecture](<docs/System Architecture.jpg>)
+
+The system is composed of two portals (user-facing and operations), a shared data layer, and an external LLM/embedding API. All services are orchestrated via Docker Compose.
+
+```
+docker-compose.yml
+├── portal-frontend     Next.js — user portal              :3000
+├── portal-backend      FastAPI — agent pipeline & APIs     :8000
+├── ops-frontend        Next.js — operations center UI      :3001
+├── ops-backend         FastAPI — ticket mgmt, RAG curation :8001
+├── postgres            PostgreSQL + pgvector               :5432
+└── mongodb             Chat history & session data         :27017
+```
+
+The LLM and embedding API provider runs externally — not managed by Compose.
 
 ---
 
@@ -16,138 +152,404 @@ Everything runs locally — no cloud services required.
 
 ```
 generative-bi/
-├── frontend/                        # Next.js + Tailwind UI
-│   ├── public/
-│   └── src/
-│       ├── app/                     # Next.js app router (layout, pages)
-│       ├── components/
-│       │   ├── Sidebar.tsx          # Nav: Charts, New Chat, Requests, History
-│       │   ├── ChatWindow.tsx       # Main chat interface with streaming
-│       │   ├── InsightCard.tsx      # Rendered insight: data + explanation
-│       │   └── RequestsPanel.tsx    # Business user request submissions
-│       ├── hooks/                   # Custom React hooks (e.g. useChat, useStream)
-│       ├── lib/                     # API client, utilities
-│       └── types/                   # Shared TypeScript types
+├── user_portal/                         # User-facing application
+│   ├── frontend/                        # Next.js + Tailwind (port 3000)
+│   │   └── src/
+│   │       ├── app/                     # App router pages
+│   │       │   ├── page.tsx             # Dashboard (3x3 KPI/chart grid)
+│   │       │   ├── chat/page.tsx        # Chat (SSE streaming, SQL viewer)
+│   │       │   ├── recent/page.tsx      # Recent chat sessions
+│   │       │   ├── requests/page.tsx    # Dashboard request lifecycle (8-state)
+│   │       │   └── login/page.tsx       # Login form
+│   │       ├── middleware.ts            # Route protection — redirects to /login if unauthenticated
+│   │       ├── components/              # AppShell, ConditionalAppShell, Sidebar, Header, KpiCard, ChartCard
+│   │       └── lib/api.ts              # API client (fetch wrappers + authHeader/logout helpers)
+│   │
+│   └── backend/                         # FastAPI — agent pipeline & APIs
+│       ├── main.py                      # App entry, router registration, lifespan
+│       ├── agents/                      # Agent modules (LLM + tools)
+│       │   ├── guardrails.py            # [small] LLM-based safety check
+│       │   ├── classifier.py            # [small] Intent classification (analytics/chitchat/history/ambiguous)
+│       │   ├── response_agent.py        # [small] Handles non-analytics intents (chitchat, history, blocked, ambiguous)
+│       │   ├── rag_agent.py             # Few-shot retrieval via pgvector cosine similarity
+│       │   ├── schema_agent.py          # [small + tool] Schema Linker — selects relevant tables only
+│       │   ├── semantic_layer.py        # Static knowledge base — metrics, join paths, business rules
+│       │   ├── sql_agent.py             # [large + sub-agents] SQL generation (Decomposer + adapt/single/multi)
+│       │   ├── validation_agent.py      # Dry-run, Error Classifier, Correction Agent, Logic Check
+│       │   ├── insight_agent.py         # [large] NL business insight generation
+│       │   └── tools/                   # Tool functions for agents
+│       │       ├── schema_tools.py      # list_tables(), pull_schema(), value_samples()
+│       │       ├── rag_tools.py         # get_embedding(), retrieve_fewshots()
+│       │       ├── semantic_tools.py    # get_semantic_context()
+│       │       ├── sql_tools.py         # dry_run_explain(), run_query()
+│       │       └── history_tools.py     # fetch_chat_history()
+│       ├── graph/
+│       │   └── pipeline.py              # LangGraph v2 workflow (4 stages, fan-out, self-repair loop)
+│       ├── api/
+│       │   ├── auth.py                  # POST /auth/login — issues JWT; verify_token dependency
+│       │   ├── chat.py                  # POST /api/chat — SSE streaming via pipeline.ainvoke()
+│       │   ├── dashboard.py             # GET /api/dashboard/* — KPI + chart data
+│       │   ├── requests.py              # POST/GET /api/requests (8-state lifecycle)
+│       │   ├── history.py               # GET /api/history/sessions
+│       │   └── feedback.py              # PATCH /api/feedback/:id — thumbs up/down + comment
+│       ├── db/
+│       │   ├── database.py              # PostgreSQL pool (asyncpg), read-only queries
+│       │   ├── mongo.py                 # MongoDB collections (motor)
+│       │   ├── seed.py                  # Seed script — 60 products, 150 retailers, 178k sales
+│       │   └── seed_fewshots.py         # Seed 15 NL-to-SQL few-shot examples (with embeddings)
+│       └── config/
+│           └── settings.py              # LLM_MODEL, LLM_MODEL_SMALL, EMBEDDING_MODEL, DB URIs
 │
-├── backend/                         # FastAPI agentic service
-│   ├── main.py                      # App entry point, router registration
-│   ├── agents/
-│   │   ├── classifier.py            # Routes query → RAG or SQL workflow
-│   │   ├── rag_agent.py             # FAQ answers + few-shot examples for SQL gen
-│   │   ├── schema_agent.py          # Provides DB schema context to LLM
-│   │   ├── sql_agent.py             # NL → SQL generation
-│   │   ├── validation_agent.py      # Validates SQL, provides error feedback for retry
-│   │   └── insight_agent.py         # Generates explanation from query results
-│   ├── api/
-│   │   ├── chat.py                  # POST /chat — main streaming query endpoint
-│   │   ├── requests.py              # Insight request submission (business users)
-│   │   └── history.py               # Chat session history endpoints
-│   ├── db/
-│   │   ├── database.py              # SQLite connection and query execution
-│   │   ├── models.py                # ORM models (sessions, messages, requests)
-│   │   └── seed.py                  # Seed script for mock FMCG data
-│   ├── rag/
-│   │   ├── vector_store.py          # FAISS index build and retrieval
-│   │   └── documents.py             # Source FAQ/metric definition documents
-│   ├── utils/
-│   │   └── streaming.py             # SSE streaming helpers
-│   ├── config/
-│   │   └── settings.py              # Model config, DB path, env vars
-│   ├── requirements.txt
-│   └── .env.example
+├── ops_portal/                          # Operations center application
+│   ├── frontend/                        # Next.js + Tailwind (port 3001)
+│   │   └── src/
+│   │       ├── app/
+│   │       │   ├── page.tsx             # Tickets (dashboard requests from users)
+│   │       │   ├── feedback/page.tsx    # Feedback review (thumbs up/down)
+│   │       │   ├── rag/page.tsx         # RAG curation (few-shot examples)
+│   │       │   └── login/page.tsx       # Login form
+│   │       ├── middleware.ts            # Route protection — redirects to /login if unauthenticated
+│   │       ├── components/              # AppShell, ConditionalAppShell, Sidebar, Header
+│   │       └── lib/api.ts              # API client (fetch wrappers + authHeader/logout helpers)
+│   │
+│   └── backend/                         # FastAPI — ops APIs
+│       ├── main.py
+│       ├── api/
+│       │   ├── auth.py                  # POST /auth/login — issues JWT; verify_token dependency
+│       │   ├── tickets.py               # GET/PATCH /api/tickets
+│       │   ├── feedback.py              # GET /api/feedback — review + dedup; POST /:id/promote → RAG
+│       │   └── rag.py                   # GET/POST /api/rag/fewshots
+│       ├── tools/
+│       │   └── embedding.py             # get_embedding() — shared by feedback dedup + rag insert
+│       ├── db/                          # Same PostgreSQL + MongoDB as portal
+│       └── config/settings.py
 │
 ├── data/
 │   └── migrations/
-│       ├── 001_initial_schema.sql   # FMCG supply chain schema
-│       └── 002_seed_data.sql        # Mock data: products, orders, inventory, etc.
+│       └── 001_initial_schema.sql       # PostgreSQL schema + pgvector + indexes
 │
-└── docs/
-    ├── architecture.md              # Agent workflow and system design
-    └── data-model.md                # Database schema reference
+├── docs/
+│   ├── agent-pipeline-design.html       # Agent pipeline visual design (open in browser)
+│   ├── data-guide.md                    # Dataset overview — schema, products, geography, example questions
+│   └── NOTEPAD.md                       # Sprint log — decisions & next steps
+│
+├── docker-compose.yml
+└── .env.example
 ```
 
 ---
 
-## FMCG Supply Chain Data Model (Overview)
+## User Portal Pages
 
-The SQLite database is modelled from an FMCG manufacturer's perspective:
+| Sidebar Nav | Route | Description |
+|-------------|-------|-------------|
+| **Dashboard** | `/` | 3x3 grid — 3 KPI cards + 6 charts (recharts, INR formatting) |
+| **Chat** | `/chat` | NL-to-SQL chat with SSE streaming, suggestion chips, SQL viewer |
+| **Recent** | `/recent` | Past chat sessions with relative timestamps, click to resume |
+| **Requests** | `/requests` | Submit dashboard requests; 8-state lifecycle (draft → closed) with comment threads |
+
+> **Authentication:** Both portals are protected by JWT auth. Unauthenticated visits redirect to `/login`. Each portal maintains an independent session (separate cookies: `auth_token` for the User Portal, `ops_auth_token` for the Operations Center) — logging into one does not authenticate the other. Credentials are set via `PORTAL_USERNAME` / `PORTAL_PASSWORD` in `.env`.
+
+---
+
+## Operations Center Pages
+
+| Page | Route | Description |
+|------|-------|-------------|
+| **Tickets** | `/` | View/manage dashboard requests from business users with status filter tabs |
+| **Feedback** | `/feedback` | Review thumbs-up/down feedback with SQL preview; dedup check against existing RAG store; promote good NL→SQL pairs directly into `fewshot_examples` |
+| **RAG Curation** | `/rag` | Manage few-shot NL-to-SQL examples — add, review, curate for accuracy |
+
+This creates a **human-in-the-loop feedback loop** that continuously improves NL-to-SQL accuracy: user feedback → ops review → promote to RAG → better SQL generation.
+
+---
+
+## FMCG Supply Chain Data Model
+
+The PostgreSQL database is modelled from an FMCG manufacturer's perspective. For a full walkthrough of the dataset — products, geography, seasonality, and example questions — see the **[Data Guide](docs/data-guide.md)**.
 
 | Table | Description |
 |---|---|
-| `products` | SKUs, categories, brand, unit cost |
+| `categories` | Product categories (Beverages, Snacks, Dairy & Ready-to-eat) |
+| `products` | 60 SKUs with brand, unit, MRP, cost price |
+| `zones` / `states` / `cities` | Geographic hierarchy (4 zones, 13 states, 30+ cities) |
 | `distributors` | Distributor master |
 | `wholesalers` | Wholesaler master |
-| `retailers` | Retailer master |
-| `orders` | Purchase orders from distributors |
-| `shipments` | Outbound shipments against orders |
-| `sales` | Sell-through data at retailer level |
-| `inventory` | Stock levels across the supply chain |
+| `retailers` | Retailer master (Modern Trade, General Trade, E-Commerce) |
+| `orders` / `order_items` | Purchase orders from distributors |
+| `shipments` / `shipment_items` | Outbound shipments against orders |
+| `sales` | Sell-through data at retailer level (~178k records) |
+| `inventory` | Weekly stock snapshots across the supply chain |
+| `fewshot_examples` | NL-to-SQL pairs with pgvector embeddings for RAG |
 
 ---
 
-## Agent Workflow
+## Databases
 
-```
-User Query
-    │
-    ▼
-Classifier
-    ├── FAQ / Metric Definition
-    │       └── RAG Agent → few-shot examples → SQL Agent
-    │
-    └── Analytics Query
-            └── Schema Agent
-                    └── SQL Agent
-                            └── Validation Agent (feedback loop, max 2 retries)
-                                    └── Query Execution (SQLite)
-                                            └── Insight Agent
-                                                    └── Streamed response to frontend
-```
+| Store | Engine | Purpose |
+|-------|--------|---------|
+| **FMCG data** | PostgreSQL | Relational business data — the NL-to-SQL query target |
+| **RAG examples** | pgvector (PostgreSQL extension) | Few-shot NL-to-SQL pairs with embeddings — curated via Operations Center |
+| **Chat history** | MongoDB | Sessions, messages, feedback — document-shaped, persistent |
+
+All data is persisted via Docker named volumes (`pg-data`, `mongo-data`). Data survives `docker-compose down` and container restarts. To wipe all data and start fresh, use `docker-compose down -v`.
 
 ---
 
 ## Key Features
 
-- Natural language → SQL analytics
-- RAG for metric definitions and FAQ (FAISS, local)
-- RAG output used as few-shot examples for SQL generation
-- Agentic validation loop with error feedback
-- Streaming responses via Server-Sent Events (SSE)
-- Chat session persistence (SQLite)
-- Business user insight request workflow
-- Charts dashboard (Power BI export planned)
-- Fully local — model-agnostic, configurable via `.env`
+- Multi-stage agentic NL-to-SQL pipeline (LangGraph) with 12 agents
+- Small/large model split — fast routing + powerful generation
+- 3-way parallel pre-processing (Guardrails, Classifier, RAG) with conditional routing
+- Query Rewriter — resolves follow-up references into standalone queries before fan-out
+- Schema Linking — only relevant tables sent to LLM (not the full schema)
+- Semantic Layer — metric definitions, value samples, FK join paths, business rules
+- Query disambiguation — asks user to clarify ambiguous questions
+- SQL Decomposer — breaks complex queries into sub-queries
+- EXPLAIN dry-run validation — catches errors before execution (zero LLM cost)
+- Error taxonomy + targeted correction (syntax, schema, logic, runtime)
+- Self-repair loop with max 3 retries
+- Streaming responses via SSE
+- Chat history persistence (MongoDB)
+- Dashboard request workflow — 8-state lifecycle with comment threads and auto-close
+- Operations Center for feedback review, RAG curation, and feedback-to-RAG promotion (with similarity dedup)
+- JWT-based auth on both portals — credentials configured via `.env`
+- Model-agnostic — any OpenAI-compatible endpoint via `.env`
+- Dockerized — all services via `docker-compose up`
 
 ---
 
-## Getting Started
+## Running the App
 
-_Setup instructions will be added as the project is scaffolded._
+### Docker (recommended)
 
-### Backend
+**1. Configure environment**
 ```bash
-cd backend
-pip install -r requirements.txt
 cp .env.example .env
-# configure your model in .env
-uvicorn main:app --reload
+# Edit .env — set your LLM_MODEL, LLM_MODEL_SMALL, LLM_BASE_URL, LLM_API_KEY
+# Optionally change PORTAL_USERNAME / PORTAL_PASSWORD / JWT_SECRET before deploying
 ```
 
-### Frontend
+**2. Build and start all services**
 ```bash
-cd frontend
+docker compose build
+docker compose up -d
+```
+
+> **After any code change**, always run `docker compose build` before `docker compose up -d` — `up` alone reuses cached images and will not pick up your changes.
+
+On **first start**, Docker creates two named volumes (`pg-data`, `mongo-data`) and PostgreSQL automatically runs all files in `data/migrations/` in order — schema is created before the backends start. On **subsequent starts**, the volumes already exist so migrations are skipped and your data is preserved.
+
+> **Resetting data:** `docker compose down -v` removes the volumes and wipes all data. The next `docker compose up -d` will re-run migrations from scratch. Use this if setup failed partway through and you want a clean slate.
+
+**3. Seed the database** (first run only)
+```bash
+# Seed FMCG supply chain data (~178k sales records)
+docker compose exec portal-backend python db/seed.py
+
+# Seed few-shot NL-to-SQL examples into pgvector (requires LLM_API_KEY for embeddings)
+docker compose exec portal-backend python db/seed_fewshots.py
+```
+
+**4. Open in browser**
+
+| Service | URL |
+|---------|-----|
+| User Portal | http://localhost:3000 |
+| Operations Center | http://localhost:3001 |
+| Portal API docs | http://localhost:8000/docs |
+| Ops API docs | http://localhost:8001/docs |
+
+Both portals redirect to `/login` on first visit and require separate logins — they maintain independent sessions. Default credentials: `testuser` / `testpass` (set in `.env`).
+
+---
+
+### Local Development
+
+For working on individual services without rebuilding Docker images.
+
+**Prerequisites:** PostgreSQL (with pgvector extension) and MongoDB running locally. Copy and configure `.env` files before starting:
+
+```bash
+cp .env.example user_portal/backend/.env
+cp ops_portal/backend/.env.example ops_portal/backend/.env
+# Edit each .env with your local DB URIs and LLM settings
+```
+
+#### Portal Backend
+```bash
+cd user_portal/backend
+python -m venv venv && source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+Seed data (first run):
+```bash
+python db/seed.py
+python db/seed_fewshots.py
+```
+
+#### Portal Frontend
+```bash
+cd user_portal/frontend
 npm install
-npm run dev
+npm run dev          # starts on :3000
+```
+
+#### Ops Backend
+```bash
+cd ops_portal/backend
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8001
+```
+
+#### Ops Frontend
+```bash
+cd ops_portal/frontend
+npm install
+npm run dev          # starts on :3001
+```
+
+---
+
+## Viewing Logs
+
+All services log to stdout and are accessible via `docker compose logs`.
+
+```bash
+# Stream all services (Ctrl+C to stop)
+docker compose logs -f
+
+# Stream a specific service
+docker compose logs -f portal-backend
+docker compose logs -f portal-frontend
+docker compose logs -f ops-backend
+docker compose logs -f ops-frontend
+docker compose logs -f postgres
+docker compose logs -f mongodb
+
+# Show last N lines then follow
+docker compose logs --tail=100 -f portal-backend
+
+# One-shot dump (no follow)
+docker compose logs portal-backend
+```
+
+> **Tip:** The agent pipeline logs each stage to stdout with structured context (e.g. `session_id`, `intent`, `sql_retries`). Filter with `grep` for quick debugging:
+> ```bash
+> docker compose logs -f portal-backend 2>&1 | grep "sql_agent\|validation\|insight"
+> ```
+
+---
+
+## Testing
+
+The test suite has two layers with different purposes and run frequencies.
+
+### Unit Tests — Orchestration (no LLM, ~4 seconds)
+
+Tests the LangGraph graph routing, retry loops, error handling, and guardrail short-circuiting. All LLM calls and DB calls are mocked. These are deterministic and fast — run them on every commit.
+
+```bash
+cd user_portal/backend
+python -m pytest tests/test_pipeline.py -v
+```
+
+**What is covered (21 tests):**
+
+| Category | Tests | What is verified |
+|---|---|---|
+| Analytics happy path | 6 | Full pipeline: classify → schema → sql → dry-run → execute → logic → insight |
+| Non-analytics routing | 4 | Chitchat, history, ambiguous queries exit early via response agent |
+| Guardrails blocking | 4 | SQL injection, prompt injection, DML requests are blocked |
+| Dry-run retry loop | 3 | Single retry, double retry, max retries exhausted then proceeds |
+| Execution errors | 2 | DB connection lost, statement timeout produce error responses |
+| Logic check failures | 2 | Logic correction succeeds; max retries causes pipeline to proceed anyway |
+
+---
+
+### Eval Tests — LLM Integration (requires a configured LLM endpoint)
+
+Tests that the individual agents and the full pipeline produce correct output when real LLM calls are made. DB I/O is mocked — no live PostgreSQL or MongoDB needed. These are non-deterministic and consume tokens, so they are opt-in.
+
+Enable by setting `RUN_EVAL=1`:
+
+```bash
+cd user_portal/backend
+
+# Run the full eval suite
+RUN_EVAL=1 python -m pytest tests/eval/ -v
+
+# Run individual eval files
+RUN_EVAL=1 python -m pytest tests/eval/test_classifier.py -v     # intent accuracy (12 cases)
+RUN_EVAL=1 python -m pytest tests/eval/test_guardrails.py -v     # safe/unsafe detection (15 cases)
+RUN_EVAL=1 python -m pytest tests/eval/test_sql_agent.py -v      # SQL structure validation (7 cases)
+RUN_EVAL=1 python -m pytest tests/eval/test_pipeline_e2e.py -v   # full pipeline (5 cases)
+```
+
+**What is covered:**
+
+| File | Cases | What is verified |
+|---|---|---|
+| `test_classifier.py` | 12 | Correct intent for analytics, chitchat, history, ambiguous queries; follow-up resolution with chat history |
+| `test_guardrails.py` | 15 | Safe analytics queries pass; SQL injection, prompt injection, DML, PII extraction are blocked |
+| `test_sql_agent.py` | 7 | Generated SQL starts with `SELECT`/`WITH`, no DML keywords, references expected tables; RAG adapt path |
+| `test_pipeline_e2e.py` | 5 | End-to-end: correct routing, SQL present for analytics, non-empty insights, chitchat handled, guardrails active |
+
+**When to run evals:**
+- After changing any agent prompt
+- After switching LLM models
+- Before merging a feature branch that touches the pipeline
+
+---
+
+### Running both suites
+
+```bash
+cd user_portal/backend
+
+# Unit tests only (default, CI-safe)
+python -m pytest tests/test_pipeline.py -v
+
+# Unit tests + eval (manual, pre-merge)
+RUN_EVAL=1 python -m pytest tests/ -v
 ```
 
 ---
 
 ## Configuration
 
-All model settings are in `backend/.env`. Developers can point to any locally hosted model (Ollama, LM Studio, etc.) or API-compatible endpoint.
+All model and database settings are configured via environment variables (`.env`).
 
 ```env
-MODEL_NAME=llama3
-MODEL_BASE_URL=http://localhost:11434
-DB_PATH=./data/genbi.db
+# Large model — SQL generation, correction, insights
+LLM_MODEL=gpt-5.4
+# Small model — classification, routing, guardrails, schema linking
+LLM_MODEL_SMALL=gpt-5.4-mini
+# LLM endpoint (any OpenAI-compatible API)
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=your-api-key
+
+# Embedding model — used for RAG few-shot similarity search
+EMBEDDING_MODEL=text-embedding-3-small
+
+# Max SQL retry attempts in self-repair loop
+MAX_SQL_RETRIES=3
+
+# Portal auth (both portals share the same credentials)
+PORTAL_USERNAME=testuser
+PORTAL_PASSWORD=testpass
+JWT_SECRET=change-me-in-prod
+
+# Databases
+POSTGRES_URI=postgresql://genbi:genbi@localhost:5432/genbi
+MONGODB_URI=mongodb://localhost:27017
 ```
+
+| Setup | Small Model | Large Model |
+|-------|-------------|-------------|
+| OpenAI | `gpt-5.4-mini` | `gpt-5.4` |
+| Local (Ollama) | `llama3:8b` | `llama3:70b` / `deepseek-coder-v2` |
+| Anthropic | `claude-haiku-4-5` | `claude-sonnet-4-6` |
+| Single model | Set both to the same value | |

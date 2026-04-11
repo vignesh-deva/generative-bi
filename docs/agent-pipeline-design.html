@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Pipeline Design — Generative BI</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    padding: 48px 32px;
+    min-height: 100vh;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 6px;
+  }
+
+  .subtitle {
+    text-align: center;
+    font-size: 14px;
+    color: #8888aa;
+    margin-bottom: 48px;
+  }
+
+  .pipeline {
+    max-width: 960px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  /* ── Stage containers ── */
+  .stage {
+    width: 100%;
+    border: 2px solid #333355;
+    border-radius: 16px;
+    padding: 24px 28px 20px;
+    background: #22223a;
+    position: relative;
+  }
+
+  .stage-label {
+    font-size: 15px;
+    font-weight: 700;
+    color: #ccc;
+    text-align: center;
+    margin-bottom: 16px;
+    letter-spacing: 0.3px;
+  }
+
+  .stage-label span {
+    color: #8888aa;
+    font-weight: 400;
+    font-size: 13px;
+  }
+
+  /* ── Agent boxes ── */
+  .agents-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .agent {
+    border-radius: 10px;
+    padding: 14px 18px;
+    min-width: 160px;
+    text-align: center;
+    flex: 1;
+    max-width: 220px;
+  }
+
+  .agent-name {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .agent-sub {
+    font-size: 11px;
+    opacity: 0.8;
+    font-style: italic;
+  }
+
+  /* Color classes */
+  .small { background: #1b5e3b; border: 1.5px solid #2a8f5a; }
+  .small .agent-name { color: #6ee7a0; }
+
+  .large { background: #1a3d6e; border: 1.5px solid #2a6cb8; }
+  .large .agent-name { color: #6db3f8; }
+
+  .tool { background: #5c3a12; border: 1.5px solid #8b6530; }
+  .tool .agent-name { color: #f0c070; }
+
+  .db { background: #4a1f6e; border: 1.5px solid #7040a0; }
+  .db .agent-name { color: #c89ef2; }
+
+  .control { background: #3a3a50; border: 1.5px solid #555570; }
+  .control .agent-name { color: #b0b0cc; }
+
+  .semantic { background: #1a4a4a; border: 1.5px solid #2a7a7a; }
+  .semantic .agent-name { color: #6dd; }
+
+  /* ── Arrow connectors ── */
+  .arrow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    color: #555570;
+  }
+
+  .arrow-line {
+    width: 2px;
+    height: 20px;
+    background: #555570;
+  }
+
+  .arrow-head {
+    width: 0; height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 8px solid #555570;
+  }
+
+  .arrow-label {
+    font-size: 11px;
+    color: #8888aa;
+    margin-top: 2px;
+    font-style: italic;
+  }
+
+  /* ── Routing box ── */
+  .route-box {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+
+  .route-option {
+    font-size: 11px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: #2a2a44;
+    border: 1px solid #444466;
+    color: #aaa;
+  }
+
+  .route-option.exit { border-color: #663333; color: #e88; }
+  .route-option.pass { border-color: #336633; color: #8e8; }
+
+  /* ── Tool pills inside agents ── */
+  .tools-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
+
+  .tool-pill {
+    font-size: 10px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: #3d2a10;
+    border: 1px solid #6b4d20;
+    color: #d4a055;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+  }
+
+  /* ── Sub-agent container ── */
+  .sub-agents {
+    margin-top: 12px;
+    padding: 12px 16px;
+    border: 1.5px dashed #444466;
+    border-radius: 10px;
+    background: #1e1e34;
+  }
+
+  .sub-label {
+    font-size: 11px;
+    color: #7777aa;
+    text-align: center;
+    margin-bottom: 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Retry loop ── */
+  .retry-badge {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: #4a2020;
+    border: 1px solid #773030;
+    color: #f08080;
+    font-weight: 600;
+  }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 32px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #999;
+  }
+
+  .legend-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+  }
+
+  /* ── Info table ── */
+  .info-section {
+    max-width: 960px;
+    margin: 48px auto 0;
+  }
+
+  .info-section h2 {
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #333355;
+  }
+
+  .info-section h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #ccc;
+    margin: 24px 0 10px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+    font-size: 13px;
+  }
+
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    background: #2a2a44;
+    color: #aab;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #333355;
+  }
+
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #2a2a3a;
+    color: #ccc;
+    vertical-align: top;
+  }
+
+  tr:hover td { background: #252540; }
+
+  code {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    background: #2a2a44;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #d4a055;
+  }
+
+  .model-small { color: #6ee7a0; font-weight: 600; }
+  .model-large { color: #6db3f8; font-weight: 600; }
+
+  /* ── Timing diagram ── */
+  .timing {
+    width: 100%;
+    margin: 16px 0;
+  }
+
+  .timing-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
+  .timing-label {
+    width: 220px;
+    font-size: 12px;
+    color: #999;
+    text-align: right;
+    padding-right: 12px;
+    flex-shrink: 0;
+  }
+
+  .timing-track {
+    flex: 1;
+    height: 24px;
+    position: relative;
+  }
+
+  .timing-bar {
+    position: absolute;
+    height: 100%;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.8);
+  }
+
+  .timing-bar.sm { background: #1b5e3b; border: 1px solid #2a8f5a; }
+  .timing-bar.lg { background: #1a3d6e; border: 1px solid #2a6cb8; }
+  .timing-bar.dv { background: #4a1f6e; border: 1px solid #7040a0; }
+  .timing-bar.ct { background: #3a3a50; border: 1px solid #555570; }
+
+  .timing-axis {
+    display: flex;
+    margin-left: 220px;
+    font-size: 10px;
+    color: #666;
+    margin-top: 4px;
+  }
+
+  .timing-axis span { flex: 1; text-align: center; }
+
+  .config-block {
+    background: #1e1e34;
+    border: 1px solid #333355;
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 13px;
+    color: #ccc;
+    line-height: 1.8;
+    margin: 12px 0;
+  }
+
+  .config-block .comment { color: #666; }
+  .config-block .key { color: #6db3f8; }
+  .config-block .val { color: #6ee7a0; }
+</style>
+</head>
+<body>
+
+<h1>Agent Pipeline Design</h1>
+<p class="subtitle">NL &rarr; SQL &rarr; Insight &nbsp;&bull;&nbsp; Every module is an agent (LLM + tools) &nbsp;&bull;&nbsp; Generative BI for FMCG supply chain &nbsp;&bull;&nbsp; v2.3</p>
+
+<!-- Legend -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#1b5e3b;border:1px solid #2a8f5a"></div> Agent — small model</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#1a3d6e;border:1px solid #2a6cb8"></div> Agent — large model</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#4a1f6e;border:1px solid #7040a0"></div> Database operation</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3d2a10;border:1px solid #6b4d20"></div> Tool</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#1a4a4a;border:1px solid #2a7a7a"></div> Semantic / context</div>
+</div>
+
+<div class="pipeline">
+
+  <!-- ════════ STEP 0: Chat History Fetch ════════ -->
+  <div class="agents-row">
+    <div class="agent db" style="max-width:320px">
+      <div class="agent-name">Fetch Chat History</div>
+      <div class="agent-sub">MongoDB</div>
+      <div class="tools-row"><span class="tool-pill">fetch_chat_history</span></div>
+      <div style="font-size:10px;color:#888;margin-top:4px">Last N messages from session &rarr; passed to Query Rewriter</div>
+    </div>
+  </div>
+
+  <div class="arrow">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ════════ STEP 0B: Query Rewriter ════════ -->
+  <div class="agents-row" style="align-items:flex-start">
+    <div class="agent small" style="max-width:340px">
+      <div class="agent-name">Query Rewriter</div>
+      <div class="agent-sub">small model &bull; no tools</div>
+      <div style="font-size:10px;color:#6ee7a0;margin-top:6px">
+        Resolves follow-up references (pronouns, ellipsis) into a self-contained query<br>
+        <span style="color:#888">Skips the LLM call entirely when there is no chat history</span><br>
+        <span style="color:#f0c070;margin-top:4px;display:block">Chart context injected when user attaches a dashboard chart</span>
+      </div>
+    </div>
+    <div class="agent tool" style="max-width:220px">
+      <div class="agent-name">Chart Context <span style="font-weight:400;font-size:10px">(optional input)</span></div>
+      <div class="agent-sub">user-attached chart &bull; slash-command picker</div>
+      <div style="font-size:10px;color:#f0c070;margin-top:6px">
+        <code style="background:#3d2a10;color:#f0c070;padding:1px 4px;border-radius:3px">chart_id</code>
+        &nbsp;
+        <code style="background:#3d2a10;color:#f0c070;padding:1px 4px;border-radius:3px">title</code>
+        &nbsp;
+        <code style="background:#3d2a10;color:#f0c070;padding:1px 4px;border-radius:3px">sql_query</code>
+      </div>
+      <div style="font-size:10px;color:#888;margin-top:6px">
+        Flows through: Rewriter &rarr; Schema Linker &rarr; SQL Agent &rarr; Insight Agent.<br>
+        Treats chart SQL as ground truth for filters, joins &amp; grain.
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ════════ STAGE 1 ════════ -->
+  <div class="stage">
+    <div class="stage-label">Stage 1: Pre-processing <span>(3-way parallel fan-out)</span></div>
+    <div class="agents-row">
+      <div class="agent small">
+        <div class="agent-name">Guardrails Agent</div>
+        <div class="agent-sub">small model &bull; no tools</div>
+        <div style="font-size:10px;color:#888;margin-top:4px">LLM-based safety — prompt injection, SQL injection in NL, system prompt extraction</div>
+      </div>
+      <div class="agent small">
+        <div class="agent-name">Classifier + Disambiguator</div>
+        <div class="agent-sub">small model &bull; no tools</div>
+        <div style="font-size:10px;color:#6ee7a0;margin-top:6px">intents: chitchat &bull; history &bull; analytics</div>
+        <div style="font-size:10px;color:#888;margin-top:2px">receives recent chat history for follow-up resolution</div>
+      </div>
+      <div class="agent small">
+        <div class="agent-name">RAG Agent</div>
+        <div class="agent-sub">small model</div>
+        <div class="tools-row">
+          <span class="tool-pill">search_fewshots</span>
+        </div>
+        <div style="font-size:10px;color:#888;margin-top:4px">pgvector cosine similarity &rarr; few-shot exemplars for SQL Agent</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+    <div class="arrow-label">fan-in &amp; route</div>
+  </div>
+
+  <!-- ════════ ROUTING SPLIT ════════ -->
+  <div style="display:flex;width:100%;gap:20px;align-items:flex-start">
+
+    <!-- ── Main flow (analytics only) ── -->
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:10px;align-self:stretch">
+      <div class="route-box" style="margin:0">
+        <span class="route-option pass" style="font-size:12px;padding:8px 20px;font-weight:600">analytics &rarr; continue &darr;</span>
+      </div>
+      <div style="width:2px;flex:1;background:#555570"></div>
+      <div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid #555570"></div>
+    </div>
+
+    <!-- ── Separator line ── -->
+    <div style="width:2px;background:linear-gradient(to bottom,#555570,transparent);min-height:240px;align-self:stretch;border-radius:2px"></div>
+
+    <!-- ── Exit branch (everything else → Response Agent) ── -->
+    <div style="flex:0 0 320px;display:flex;flex-direction:column;align-items:center;gap:10px">
+      <div class="route-box" style="margin:0;flex-direction:column;align-items:center">
+        <span class="route-option exit">blocked &rarr; refuse</span>
+        <span class="route-option exit" style="margin-top:4px">ambiguous &rarr; clarify</span>
+        <span class="route-option exit" style="margin-top:4px">chitchat &rarr; direct reply</span>
+        <span class="route-option exit" style="margin-top:4px">history &rarr; summarize / answer</span>
+      </div>
+      <div class="arrow">
+        <div class="arrow-line" style="height:14px"></div>
+        <div class="arrow-head"></div>
+      </div>
+      <div style="border:2px solid #553355;background:#2a2235;border-radius:14px;padding:16px 18px 14px;width:100%">
+        <div style="font-size:12px;font-weight:700;color:#ccc;text-align:center;margin-bottom:10px">Exit Path <span style="color:#8888aa;font-weight:400;font-size:11px">(non-analytics)</span></div>
+        <div class="agent small" style="max-width:none">
+          <div class="agent-name">Response Agent</div>
+          <div class="agent-sub">small model</div>
+          <div class="tools-row"><span class="tool-pill">fetch_chat_history</span></div>
+          <div style="font-size:10px;color:#888;margin-top:6px">
+            Blocked: polite refusal<br>
+            Ambiguous: asks clarifying question<br>
+            Chitchat: conversational reply<br>
+            History: fetches chat from MongoDB, summarizes or answers
+          </div>
+        </div>
+        <div class="arrow" style="margin-top:10px">
+          <div class="arrow-line" style="height:12px"></div>
+          <div class="arrow-head"></div>
+        </div>
+        <div style="text-align:center;margin-top:4px">
+          <span class="route-option pass" style="font-size:11px;font-weight:600">SSE stream &rarr; Frontend</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ STAGE 1B ════════ -->
+  <div class="stage">
+    <div class="stage-label">Stage 1B: Schema Linking + Context</div>
+    <div class="agents-row">
+      <div class="agent semantic" style="max-width:540px">
+        <div class="agent-name">Schema Linker</div>
+        <div class="agent-sub">small model &bull; LLM-based table selection</div>
+        <div class="tools-row">
+          <span class="tool-pill">list_tables</span>
+          <span class="tool-pill">pull_schema</span>
+          <span class="tool-pill">value_samples</span>
+          <span class="tool-pill">get_semantic_context</span>
+        </div>
+        <div style="font-size:10px;margin-top:8px;line-height:1.7;display:flex;gap:20px;justify-content:center">
+          <span><span style="color:#6dd;font-weight:600">schema_context</span> <span style="color:#888">&mdash; targeted table DDL + value samples (exact entity names for SQL Agent)</span></span>
+          <span style="color:#555">|</span>
+          <span><span style="color:#6dd;font-weight:600">semantic_context</span> <span style="color:#888">&mdash; metric definitions, FK join paths, business rules</span></span>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:12px;text-align:center;font-size:11px;color:#6dd;line-height:1.6">
+      Only relevant tables forwarded to SQL Agent &mdash; eliminates full-schema noise &bull; Chart context injected if attached
+    </div>
+  </div>
+
+  <div class="arrow">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ════════ STAGE 2 ════════ -->
+  <div class="stage">
+    <div class="stage-label">Stage 2: SQL Generation</div>
+    <div style="text-align:center;font-size:11px;color:#6dd;margin-bottom:12px">
+      Receives: linked schema + semantic context + <strong>RAG few-shot examples</strong> + chat history context
+    </div>
+    <div class="agents-row">
+      <div class="agent large" style="max-width:280px">
+        <div class="agent-name">SQL Agent</div>
+        <div class="agent-sub">large model</div>
+        <div class="tools-row">
+          <span class="tool-pill">decompose</span>
+          <span class="tool-pill">generate_subquery</span>
+        </div>
+        <div style="font-size:10px;color:#888;margin-top:6px">
+          Few-shot examples from RAG injected into prompt as exemplars
+        </div>
+      </div>
+    </div>
+    <div class="sub-agents">
+      <div class="sub-label">SQL Agent sub-agents (invoked as tools)</div>
+      <div class="agents-row">
+        <div class="agent small" style="max-width:240px">
+          <div class="agent-name">Decomposer</div>
+          <div class="agent-sub">small model</div>
+          <div class="tools-row">
+            <span class="tool-pill">single-step?</span>
+            <span class="tool-pill">sub-query plan</span>
+          </div>
+          <div style="font-size:10px;color:#6ee7a0;margin-top:6px">
+            If RAG similarity &ge; 0.85 &rarr; skip decomposition, adapt the matched query directly
+          </div>
+        </div>
+        <div class="agent large" style="max-width:200px">
+          <div class="agent-name">Sub-query Generator</div>
+          <div class="agent-sub">large model &times; N</div>
+          <div class="tools-row">
+            <span class="tool-pill">SQL per sub-query</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ════════ STAGE 3 ════════ -->
+  <div class="stage" style="position:relative">
+    <div class="retry-badge">max 3 iterations</div>
+    <div class="stage-label">Stage 3: Validation + Self-repair</div>
+
+    <!-- Row 1: Dry-run -->
+    <div class="agents-row">
+      <div class="agent db" style="max-width:280px">
+        <div class="agent-name">Dry-Run Validator</div>
+        <div class="agent-sub">EXPLAIN on PostgreSQL</div>
+        <div class="tools-row"><span class="tool-pill">dry_run_explain</span></div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:24px;justify-content:center;margin-top:14px">
+      <!-- Left path: passes -->
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:1;max-width:240px">
+        <span style="font-size:11px;color:#6ee7a0;font-weight:600">&#10003; passes</span>
+        <div class="agent db">
+          <div class="agent-name">Execute Query</div>
+          <div class="agent-sub">PostgreSQL</div>
+          <div class="tools-row"><span class="tool-pill">execute_query</span></div>
+        </div>
+        <div class="arrow"><div class="arrow-line" style="height:12px"></div><div class="arrow-head"></div></div>
+        <div class="agent small">
+          <div class="agent-name">Validation Agent</div>
+          <div class="agent-sub">small model &bull; agentic tool loop (max 3 rounds)</div>
+          <div class="tools-row">
+            <span class="tool-pill">get_current_date</span>
+            <span class="tool-pill">lookup_column</span>
+            <span class="tool-pill">get_schema</span>
+            <span class="tool-pill">get_join_info</span>
+            <span class="tool-pill">run_test_query</span>
+          </div>
+          <div style="font-size:10px;color:#888;margin-top:4px">Falls back to single-shot if provider lacks function calling</div>
+        </div>
+      </div>
+
+      <!-- Right path: fails -->
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:1;max-width:240px">
+        <span style="font-size:11px;color:#f08080;font-weight:600">&#10007; fails</span>
+        <div class="agent small">
+          <div class="agent-name">Error Classifier Agent</div>
+          <div class="agent-sub">small model &bull; no tools</div>
+          <div style="font-size:10px;color:#888;margin-top:4px">categorizes: syntax &bull; schema &bull; logic &bull; runtime</div>
+        </div>
+        <div class="arrow"><div class="arrow-line" style="height:12px"></div><div class="arrow-head"></div></div>
+        <div class="agent large">
+          <div class="agent-name">Correction Agent</div>
+          <div class="agent-sub">large model</div>
+          <div class="tools-row">
+            <span class="tool-pill">pull_schema</span>
+            <span class="tool-pill">value_samples</span>
+            <span class="tool-pill">dry_run_explain</span>
+          </div>
+          <div style="font-size:10px;color:#888;margin-top:4px">same tools as Stage 1 &mdash; can re-check schema, sample values, and validate fixes</div>
+        </div>
+        <div style="font-size:10px;color:#f0c070;margin-top:4px">&#8635; retry &rarr; back to Dry-Run</div>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;text-align:center">
+      <svg width="320" height="24" style="display:block;margin:0 auto">
+        <defs><marker id="ah" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#f0c070"/></marker></defs>
+        <path d="M 260 12 C 300 12, 320 -10, 320 -30" stroke="#f0c070" stroke-width="1.5" fill="none" stroke-dasharray="4 3" />
+      </svg>
+      <div style="font-size:10px;color:#999;margin-top:2px">Logic Check failures also route to Error Classifier &rarr; Correction Agent</div>
+    </div>
+  </div>
+
+  <div class="arrow">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ════════ STAGE 4 ════════ -->
+  <div class="stage">
+    <div class="stage-label">Stage 4: Response Synthesis</div>
+    <div class="agents-row">
+      <div class="agent large" style="max-width:340px">
+        <div class="agent-name">Insight Agent</div>
+        <div class="agent-sub">large model</div>
+        <div class="tools-row">
+          <span class="tool-pill">NL business insight</span>
+          <span class="tool-pill">cite assumptions</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <div class="route-box">
+    <span class="route-option pass" style="font-size:13px;padding:8px 24px;font-weight:600">SSE stream &rarr; Frontend</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- INFO SECTIONS -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+
+<div class="info-section">
+
+  <h2>Agent Inventory</h2>
+
+  <table>
+    <tr>
+      <th>Agent</th>
+      <th>Model</th>
+      <th>Purpose</th>
+      <th>Tools</th>
+    </tr>
+    <tr>
+      <td>Query Rewriter</td>
+      <td><span class="model-small">small</span></td>
+      <td>Resolves follow-up references (pronouns, co-references, ellipsis) into a self-contained standalone query using recent chat history. Skips the LLM call entirely when there is no history. Chart context (<code>chart_id</code>, <code>title</code>, <code>sql_query</code>) injected when user attaches a dashboard chart via the slash-command picker.</td>
+      <td>none</td>
+    </tr>
+    <tr>
+      <td>Guardrails</td>
+      <td><span class="model-small">small</span></td>
+      <td>LLM-based safety — prompt injection, SQL injection in NL, system prompt extraction</td>
+      <td>none</td>
+    </tr>
+    <tr>
+      <td>Classifier + Disambiguator</td>
+      <td><span class="model-small">small</span></td>
+      <td>Intent routing (chitchat / history / analytics) + ambiguity detection. Receives recent chat history for follow-up resolution. Streams clarification question if ambiguous.</td>
+      <td>none</td>
+    </tr>
+    <tr>
+      <td>Response Agent</td>
+      <td><span class="model-small">small</span></td>
+      <td>Handles all non-analytics intents. Blocked: polite refusal. Ambiguous: asks clarifying question. Chitchat: conversational reply. History: fetches recent chat from MongoDB, summarizes or answers.</td>
+      <td><code>fetch_chat_history</code> — MongoDB session/message lookup</td>
+    </tr>
+    <tr>
+      <td>RAG Agent</td>
+      <td><span class="model-small">small</span></td>
+      <td>Retrieve similar NL&rarr;SQL examples for few-shot context. Runs in parallel with Guardrails + Classifier during Stage 1.</td>
+      <td><code>search_fewshots</code> — pgvector cosine similarity</td>
+    </tr>
+    <tr>
+      <td>Schema Linker</td>
+      <td><span class="model-small">small</span></td>
+      <td>LLM-based table selection — identifies the minimal set of tables needed, fetches their DDL + value samples (so the SQL Agent uses exact entity names, not ILIKE guesses). In the same pass, injects semantic context: metric definitions, FK join paths, business rules. Runs sequentially in Stage 1B after the fan-in router, not in the Stage 1 parallel fan-out. Chart context injected when attached.</td>
+      <td><code>list_tables</code>, <code>pull_schema</code>, <code>value_samples</code>, <code>get_semantic_context</code></td>
+    </tr>
+    <tr>
+      <td>SQL Agent</td>
+      <td><span class="model-large">large</span></td>
+      <td>Core SQL generation with CoT reasoning. RAG few-shot examples injected as exemplars. Receives today's date and value samples from Schema Agent — uses exact values rather than ILIKE guesses.</td>
+      <td><code>decompose</code>, <code>generate_subquery</code></td>
+    </tr>
+    <tr>
+      <td>&emsp;Decomposer <i>(sub-agent)</i></td>
+      <td><span class="model-small">small</span></td>
+      <td>Decide single-step vs multi-step, plan sub-queries. If RAG similarity &ge; 0.85, skips decomposition and adapts the matched query directly.</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>&emsp;Sub-query Gen <i>(sub-agent)</i></td>
+      <td><span class="model-large">large</span></td>
+      <td>Generate SQL for each sub-query (parallelizable)</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Error Classifier</td>
+      <td><span class="model-small">small</span></td>
+      <td>Categorize errors: syntax, schema, logic, runtime</td>
+      <td>none</td>
+    </tr>
+    <tr>
+      <td>Correction Agent</td>
+      <td><span class="model-large">large</span></td>
+      <td>Targeted SQL fix based on error type. Has full access to schema and sample values for informed corrections.</td>
+      <td><code>pull_schema</code>, <code>value_samples</code>, <code>dry_run_explain</code></td>
+    </tr>
+    <tr>
+      <td>Validation Agent</td>
+      <td><span class="model-small">small</span></td>
+      <td>Post-execution logic check via agentic tool-calling loop (max 3 rounds). LLM verifies the SQL answers the question, checking dates, column values, join paths, and running test queries before rendering a verdict. Falls back to single-shot for providers without function calling.</td>
+      <td><code>get_current_date</code>, <code>lookup_column</code>, <code>get_schema</code>, <code>get_join_info</code>, <code>run_test_query</code></td>
+    </tr>
+    <tr>
+      <td>Insight Agent</td>
+      <td><span class="model-large">large</span></td>
+      <td>NL business insight — cites numbers, explains reasoning, flags assumptions. Chart context injected when attached so the insight is framed relative to the referenced chart.</td>
+      <td>—</td>
+    </tr>
+  </table>
+
+  <!-- ── Error Taxonomy ── -->
+  <h2>Error Taxonomy</h2>
+  <table>
+    <tr>
+      <th>Type</th>
+      <th>Source</th>
+      <th>Example</th>
+      <th>Correction Strategy</th>
+    </tr>
+    <tr>
+      <td><code>syntax</code></td>
+      <td>EXPLAIN</td>
+      <td>syntax error at or near "FORM"</td>
+      <td>Show exact Postgres error message</td>
+    </tr>
+    <tr>
+      <td><code>schema</code></td>
+      <td>EXPLAIN</td>
+      <td>relation "product" does not exist</td>
+      <td>Re-inject linked schema, highlight correct name (<code>products</code>)</td>
+    </tr>
+    <tr>
+      <td><code>logic</code></td>
+      <td>Logic Check</td>
+      <td>Returns all-time revenue but user asked for Q1</td>
+      <td>Provide logic feedback + original query for re-generation</td>
+    </tr>
+    <tr>
+      <td><code>runtime</code></td>
+      <td>EXPLAIN / Execute</td>
+      <td>column "name" is ambiguous</td>
+      <td>Show ambiguous reference + tables involved</td>
+    </tr>
+  </table>
+
+  <!-- ── Timing ── -->
+  <h2>Parallelism &amp; Timing</h2>
+  <p style="font-size:13px;color:#888;margin-bottom:16px">Happy path — no retries. Parallel stages shown at same vertical position.</p>
+
+  <h3>Analytics Path (happy path &mdash; no retries)</h3>
+  <div class="timing">
+    <div class="timing-row">
+      <div class="timing-label" style="color:#666">Fetch chat history <span style="color:#c89ef2">[MongoDB]</span></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:0%;width:2%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Query Rewriter <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:2%;width:5%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Guardrails <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:7%;width:9%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Classifier <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:7%;width:9%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">RAG Agent <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:7%;width:9%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label" style="color:#666">Fan-in + route</div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:16%;width:2%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Schema Linker <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:18%;width:11%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">SQL Agent <span class="model-large">[large]</span></div>
+      <div class="timing-track"><div class="timing-bar lg" style="left:29%;width:19%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">EXPLAIN dry-run <span style="color:#c89ef2">[DB]</span></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:48%;width:4%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Execute query <span style="color:#c89ef2">[DB]</span></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:52%;width:7%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Validation Agent <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:59%;width:9%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Insight Agent <span class="model-large">[large]</span></div>
+      <div class="timing-track"><div class="timing-bar lg" style="left:68%;width:18%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label" style="color:#666">SSE stream</div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:86%;width:8%"></div></div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:24px">Non-Analytics Path (blocked / ambiguous / chitchat / history)</h3>
+  <div class="timing">
+    <div class="timing-row">
+      <div class="timing-label" style="color:#666">Fetch chat history <span style="color:#c89ef2">[MongoDB]</span></div>
+      <div class="timing-track"><div class="timing-bar dv" style="left:0%;width:2%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Query Rewriter <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:2%;width:5%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Guardrails <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:7%;width:9%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Classifier <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:7%;width:9%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label" style="color:#666">Route &rarr; exit</div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:16%;width:2%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">Response Agent <span class="model-small">[small]</span></div>
+      <div class="timing-track"><div class="timing-bar sm" style="left:18%;width:12%"></div></div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label" style="color:#666">SSE stream</div>
+      <div class="timing-track"><div class="timing-bar ct" style="left:30%;width:8%"></div></div>
+    </div>
+  </div>
+
+  <div style="display:flex;justify-content:space-between;margin-top:8px;padding:0 220px 0 0">
+    <div></div>
+    <div style="font-size:11px;color:#666">
+      Analytics: <span class="model-small">8 small</span> + <span class="model-large">2 large</span> = 10 LLM calls (happy path) &nbsp;|&nbsp; Worst case (3 retries): 16<br>
+      Non-analytics: <span class="model-small">4 small</span> = 4 LLM calls &nbsp;&bull;&nbsp; Query Rewriter skipped when no chat history
+    </div>
+  </div>
+
+  <!-- ── Config ── -->
+  <h2>Model Configuration</h2>
+
+  <div class="config-block">
+    <span class="comment"># config/settings.py</span><br>
+    <span class="key">LLM_MODEL</span> = <span class="val">"llama3:70b"</span> &emsp;<span class="comment"># large — SQL generation, correction, insight</span><br>
+    <span class="key">LLM_MODEL_SMALL</span> = <span class="val">"llama3:8b"</span> &emsp;<span class="comment"># small — classification, routing, tools</span><br>
+    <span class="key">LLM_BASE_URL</span> = <span class="val">"http://localhost:11434/v1"</span><br>
+    <span class="key">LLM_API_KEY</span> = <span class="val">"ollama"</span><br>
+    <span class="key">MAX_SQL_RETRIES</span> = <span class="val">3</span>
+  </div>
+
+  <table>
+    <tr>
+      <th>Setup</th>
+      <th>Small Model</th>
+      <th>Large Model</th>
+    </tr>
+    <tr>
+      <td>Local (Ollama)</td>
+      <td><code>llama3:8b</code></td>
+      <td><code>llama3:70b</code> / <code>deepseek-coder-v2</code></td>
+    </tr>
+    <tr>
+      <td>API (OpenAI)</td>
+      <td><code>gpt-4o-mini</code></td>
+      <td><code>gpt-4o</code></td>
+    </tr>
+    <tr>
+      <td>API (Anthropic)</td>
+      <td><code>claude-haiku-4-5</code></td>
+      <td><code>claude-sonnet-4-6</code></td>
+    </tr>
+    <tr>
+      <td>Single model</td>
+      <td colspan="2" style="text-align:center;color:#888">Set both to the same value — works, just slower/costlier</td>
+    </tr>
+  </table>
+
+  <!-- ── File Structure ── -->
+  <h2>File Structure</h2>
+  <div class="config-block" style="line-height:1.6">
+    user_portal/backend/<br>
+    ├── agents/<br>
+    │&emsp;&emsp;├── rewrite_agent.py &emsp;&emsp;&emsp;<span class="comment"># [small] query rewriter — resolves follow-up references; skips if no history</span><br>
+    │&emsp;&emsp;├── guardrails.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [small] LLM safety check — no tools</span><br>
+    │&emsp;&emsp;├── classifier.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [small] intent (chitchat/history/analytics) + disambiguation — no tools</span><br>
+    │&emsp;&emsp;├── response_agent.py &emsp;&emsp;&emsp;<span class="comment"># [small + tool] direct reply for chitchat + history intents</span><br>
+    │&emsp;&emsp;├── rag_agent.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [small + tool] few-shot retrieval</span><br>
+    │&emsp;&emsp;├── schema_agent.py &emsp;&emsp;&emsp;&emsp;<span class="comment"># [small + tool] table selection + value samples</span><br>
+    │&emsp;&emsp;├── semantic_layer.py &emsp;&emsp;&emsp;<span class="comment"># [small + tool] metric defs + rules</span><br>
+    │&emsp;&emsp;├── sql_agent.py &emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># [large + sub-agents] SQL generation (receives RAG fewshots + today's date)</span><br>
+    │&emsp;&emsp;├── validation_agent.py &emsp;&emsp;<span class="comment"># dry-run, error classifier, correction, logic check (agentic tool loop)</span><br>
+    │&emsp;&emsp;├── insight_agent.py &emsp;&emsp;&emsp;<span class="comment"># [large] NL business insight</span><br>
+    │&emsp;&emsp;└── tools/<br>
+    │&emsp;&emsp;&emsp;&emsp;&emsp;├── schema_tools.py &emsp;<span class="comment"># pull_schema(), value_samples(), lookup_column() [type-aware]</span><br>
+    │&emsp;&emsp;&emsp;&emsp;&emsp;├── rag_tools.py &emsp;&emsp;&emsp;<span class="comment"># search_fewshots()</span><br>
+    │&emsp;&emsp;&emsp;&emsp;&emsp;├── semantic_tools.py <span class="comment"># lookup_metrics()</span><br>
+    │&emsp;&emsp;&emsp;&emsp;&emsp;├── sql_tools.py &emsp;&emsp;&emsp;<span class="comment"># dry_run_explain(), execute_query()</span><br>
+    │&emsp;&emsp;&emsp;&emsp;&emsp;└── history_tools.py &emsp;<span class="comment"># fetch_chat_history() — MongoDB session/message lookup</span><br>
+    ├── graph/<br>
+    │&emsp;&emsp;└── pipeline.py &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># LangGraph orchestration</span><br>
+    └── config/<br>
+    &emsp;&emsp;&emsp;└── settings.py &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;<span class="comment"># LLM_MODEL, LLM_MODEL_SMALL, MAX_SQL_RETRIES</span>
+  </div>
+
+</div>
+
+</body>
+</html>

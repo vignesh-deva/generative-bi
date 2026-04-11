@@ -1,0 +1,91 @@
+services:
+  portal-frontend:
+    build: ./user_portal/frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000  # client-side (browser) only; use portal-backend:8000 for SSR
+    depends_on:
+      - portal-backend
+
+  portal-backend:
+    build: ./user_portal/backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./user_portal/backend/.env
+    environment:
+      - POSTGRES_URI=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - MONGODB_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/?authSource=admin
+      - PORTAL_USERNAME=${PORTAL_USERNAME}
+      - PORTAL_PASSWORD=${PORTAL_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+
+  ops-frontend:
+    build: ./ops_portal/frontend
+    ports:
+      - "3001:3001"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8001  # client-side (browser) only; use ops-backend:8001 for SSR
+    depends_on:
+      - ops-backend
+
+  ops-backend:
+    build: ./ops_portal/backend
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./ops_portal/backend/.env
+    environment:
+      - POSTGRES_URI=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - MONGODB_URI=mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongodb:27017/?authSource=admin
+      - PORTAL_USERNAME=${PORTAL_USERNAME}
+      - PORTAL_PASSWORD=${PORTAL_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./data/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  pg-data:
+  mongo-data:
