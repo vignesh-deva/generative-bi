@@ -155,9 +155,14 @@ CREATE INDEX IF NOT EXISTS idx_orders_date       ON orders(order_date);
 CREATE INDEX IF NOT EXISTS idx_orders_dist       ON orders(distributor_id);
 CREATE INDEX IF NOT EXISTS idx_shipments_order   ON shipments(order_id);
 
--- pgvector index for similarity search on few-shot examples
+-- pgvector HNSW index for similarity search on few-shot examples.
+-- HNSW is preferred over IVFFlat because:
+--   - Exact (not approximate) nearest-neighbor at any table size
+--   - IVFFlat with lists=10 and probes=1 returns wrong results on small tables
+--     (< ~1000 rows) because most clusters are searched from one probe only
+-- m=16 ef_construction=64 are conservative defaults suitable for 1536-dim vectors.
 CREATE INDEX IF NOT EXISTS idx_fewshot_embedding ON fewshot_examples
-    USING ivfflat (embedding vector_cosine_ops) WITH (lists = 10);
+    USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
 
 -- NOTE: Chat sessions, messages, and dashboard requests are stored in MongoDB.
 -- See user_portal/backend/db/mongo.py for collection definitions.

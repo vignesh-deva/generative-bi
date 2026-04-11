@@ -19,10 +19,12 @@ Streaming behavior:
 import asyncio
 import json
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+timing_logger = logging.getLogger("pipeline.timing")
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -119,6 +121,7 @@ async def chat(req: ChatRequest):
         result: dict = {}
         response_text = ""
         sql_query = None
+        request_start = time.perf_counter()
 
         # Tell the client which message_id the upcoming assistant reply will have,
         # so thumbs up/down can be submitted against it immediately.
@@ -131,6 +134,12 @@ async def chat(req: ChatRequest):
                 label = STEP_LABELS.get(node_name)
                 if label:
                     yield sse_event({"type": "step", "content": label})
+            graph_end = time.perf_counter()
+            timing_logger.info(
+                "[timing] phase=graph_total elapsed=%.0fms session=%s",
+                (graph_end - request_start) * 1000,
+                session_id,
+            )
 
             sql_query = result.get("sql_query")
             if sql_query:
@@ -145,13 +154,24 @@ async def chat(req: ChatRequest):
                 yield sse_event({"type": "token", "content": response_text})
             elif query_result is not None:
                 # Stream the insight directly from the LLM
+                stream_start = time.perf_counter()
+                first_token_at: float | None = None
                 async for delta in stream_insight(
                     query=req.query,
                     sql=sql_query or "",
                     result=query_result,
                 ):
+                    if first_token_at is None:
+                        first_token_at = time.perf_counter()
                     response_text += delta
                     yield sse_event({"type": "token", "content": delta})
+                stream_end = time.perf_counter()
+                timing_logger.info(
+                    "[timing] phase=stream_insight elapsed=%.0fms ttft=%sms chars=%d",
+                    (stream_end - stream_start) * 1000,
+                    f"{(first_token_at - stream_start) * 1000:.0f}" if first_token_at else "NA",
+                    len(response_text),
+                )
             else:
                 # Non-analytics path: response_agent already produced the text
                 cached = result.get("response", "")
@@ -202,11 +222,17 @@ async def chat(req: ChatRequest):
         except Exception:
             logger.exception("failed to persist assistant reply session=%s", session_id)
 
+        total_ms = (time.perf_counter() - request_start) * 1000
+        timing_logger.info(
+            "[timing] phase=request_total elapsed=%.0fms session=%s",
+            total_ms, session_id,
+        )
         logger.info(
-            "session=%s done sql=%s response_chars=%d",
+            "session=%s done sql=%s response_chars=%d total_ms=%.0f",
             session_id,
             "yes" if sql_query else "no",
             len(response_text),
+            total_ms,
         )
         yield sse_event("[DONE]")
 
