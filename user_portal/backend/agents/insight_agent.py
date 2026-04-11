@@ -8,6 +8,7 @@ from typing import AsyncIterator
 from openai import AsyncOpenAI
 
 from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, DOMAIN_DESCRIPTION, LLM_REQUEST_TIMEOUT
+from utils.chart_context import format_chart_context_block
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ async def generate_insight(
     query: str,
     sql: str,
     result: dict,
+    chart_context: dict | None = None,
 ) -> str:
     rows = result.get("rows", [])
     columns = result.get("columns", [])
@@ -62,10 +64,12 @@ async def generate_insight(
     if row_count > 20:
         result_text += f"... and {row_count - 20} more rows\n"
 
+    system_prompt = SYSTEM_PROMPT + format_chart_context_block(chart_context)
+
     response = await _client.chat.completions.create(
         model=LLM_MODEL,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": (
@@ -83,7 +87,9 @@ async def generate_insight(
     return insight
 
 
-def _build_insight_messages(query: str, result: dict) -> tuple[list[dict], int]:
+def _build_insight_messages(
+    query: str, result: dict, chart_context: dict | None = None
+) -> tuple[list[dict], int]:
     """Build the chat-completion messages for the insight agent."""
     rows = result.get("rows", [])
     columns = result.get("columns", [])
@@ -96,8 +102,10 @@ def _build_insight_messages(query: str, result: dict) -> tuple[list[dict], int]:
     if row_count > 20:
         result_text += f"... and {row_count - 20} more rows\n"
 
+    system_prompt = SYSTEM_PROMPT + format_chart_context_block(chart_context)
+
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {
             "role": "user",
             "content": (
@@ -113,6 +121,7 @@ async def stream_insight(
     query: str,
     sql: str,
     result: dict,
+    chart_context: dict | None = None,
 ) -> AsyncIterator[str]:
     """Yield insight text as it streams from the LLM.
 
@@ -130,7 +139,7 @@ async def stream_insight(
         )
         return
 
-    messages, _ = _build_insight_messages(query, result)
+    messages, _ = _build_insight_messages(query, result, chart_context=chart_context)
 
     try:
         stream = await _client.chat.completions.create(
@@ -150,5 +159,5 @@ async def stream_insight(
     except Exception as e:
         # Fall back to one-shot generation if streaming isn't supported
         logger.warning("streaming insight failed (%s), falling back to one-shot", e)
-        text = await generate_insight(query, sql, result)
+        text = await generate_insight(query, sql, result, chart_context=chart_context)
         yield text

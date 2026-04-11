@@ -21,7 +21,7 @@ async def fetch_chat_history(session_id: str, limit: int = 10) -> list[dict]:
         chat_messages()
         .find(
             {"session_id": session_id},
-            {"_id": 0, "role": 1, "content": 1, "sql_query": 1},
+            {"_id": 0, "role": 1, "content": 1, "sql_query": 1, "chart_context": 1},
         )
         .sort("created_at", -1)
         .limit(limit)

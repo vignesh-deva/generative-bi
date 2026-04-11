@@ -57,9 +57,21 @@ STEP_LABELS: dict[str, str] = {
 }
 
 
+class ChartContext(BaseModel):
+    """A chart the user attached to their message via the slash-command picker.
+
+    Carries only the metadata the agents need to ground their reasoning —
+    title for human-readable references, sql_query for exact filters/joins/grain.
+    """
+    chart_id: str
+    title: str
+    sql_query: str
+
+
 class ChatRequest(BaseModel):
     query: str
     session_id: str | None = None
+    chart_context: ChartContext | None = None
 
 
 def sse_event(data: dict | str) -> str:
@@ -67,7 +79,7 @@ def sse_event(data: dict | str) -> str:
     return f"data: {payload}\n\n"
 
 
-async def _run_pipeline(query: str, session_id: str):
+async def _run_pipeline(query: str, session_id: str, chart_context: dict | None):
     """Stream pipeline updates as nodes complete. Raises asyncio.TimeoutError if
     the overall wall-clock deadline is exceeded between chunks.
     """
@@ -75,7 +87,12 @@ async def _run_pipeline(query: str, session_id: str):
     deadline = loop.time() + PIPELINE_TIMEOUT_SECONDS
 
     async for chunk in pipeline.astream(
-        {"query": query, "session_id": session_id, "stream_insight": True},
+        {
+            "query": query,
+            "session_id": session_id,
+            "stream_insight": True,
+            "chart_context": chart_context,
+        },
         stream_mode="updates",
     ):
         if loop.time() > deadline:
@@ -103,6 +120,8 @@ async def chat(req: ChatRequest):
     user_message_id = str(uuid.uuid4())
     assistant_message_id = str(uuid.uuid4())
 
+    chart_context_dict = req.chart_context.model_dump() if req.chart_context else None
+
     await chat_messages().insert_one(
         {
             "message_id": user_message_id,
@@ -110,6 +129,7 @@ async def chat(req: ChatRequest):
             "role": "user",
             "content": req.query,
             "sql_query": None,
+            "chart_context": chart_context_dict,
             "feedback": None,
             "feedback_comment": None,
             "feedback_at": None,
@@ -128,7 +148,9 @@ async def chat(req: ChatRequest):
         yield sse_event({"type": "message_id", "content": assistant_message_id})
 
         try:
-            async for node_name, node_update in _run_pipeline(req.query, session_id):
+            async for node_name, node_update in _run_pipeline(
+                req.query, session_id, chart_context_dict
+            ):
                 if isinstance(node_update, dict):
                     result.update(node_update)
                 label = STEP_LABELS.get(node_name)
@@ -160,6 +182,7 @@ async def chat(req: ChatRequest):
                     query=req.query,
                     sql=sql_query or "",
                     result=query_result,
+                    chart_context=chart_context_dict,
                 ):
                     if first_token_at is None:
                         first_token_at = time.perf_counter()

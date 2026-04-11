@@ -5,15 +5,25 @@ import { useSearchParams } from "next/navigation";
 import {
   Send, Bot, User, Loader2, Sparkles, Table2,
   ChevronRight, ChevronDown, FilePlus, ThumbsUp, ThumbsDown,
+  BarChart3, X,
 } from "lucide-react";
 import {
   emitSessionCreated,
+  fetchChartsMetadata,
   fetchMessages,
   submitFeedback,
+  type ChartMeta,
   type ChatContext,
   type FeedbackVote,
 } from "@/lib/api";
 import RequestModal from "./RequestModal";
+import ChartPickerPopover from "./ChartPickerPopover";
+
+type AttachedChart = {
+  chart_id: string;
+  title: string;
+  sql_query: string;
+};
 
 type Message = {
   id: string;                     // local React key
@@ -28,6 +38,7 @@ type Message = {
   feedbackComment?: string | null;
   feedbackOpen?: boolean;         // comment editor visibility
   feedbackDraft?: string;         // in-progress comment text
+  attachedChart?: AttachedChart;  // chart attached by the user via slash command
 };
 
 // ── Steps panel ───────────────────────────────────────────────────
@@ -117,6 +128,7 @@ type HistoryMessage = {
   role: "user" | "assistant";
   content: string;
   sql_query?: string | null;
+  chart_context?: AttachedChart | null;
   feedback?: FeedbackVote;
   feedback_comment?: string | null;
   created_at: string;
@@ -140,6 +152,13 @@ function ChatPageInner() {
   } | null>(null);
   const [requestFlash, setRequestFlash] = useState<string | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  // Chart-attachment state (slash-command picker)
+  const [charts, setCharts] = useState<ChartMeta[]>([]);
+  const [attachedChart, setAttachedChart] = useState<AttachedChart | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [slashQuery, setSlashQuery] = useState("");
+  const [pickerActive, setPickerActive] = useState(0);
+  const pickerMatchesRef = useRef<ChartMeta[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -295,6 +314,7 @@ function ChatPageInner() {
           role: m.role,
           content: m.content,
           sql: m.sql_query ?? undefined,
+          attachedChart: m.chart_context ?? undefined,
           timestamp: new Date(m.created_at),
           feedback: m.feedback ?? null,
           feedbackComment: m.feedback_comment ?? null,
@@ -322,16 +342,108 @@ function ChatPageInner() {
     if (!loadingHistory) inputRef.current?.focus();
   }, [loadingHistory]);
 
+  // Fetch available charts once on mount for the slash-command picker.
+  useEffect(() => {
+    fetchChartsMetadata()
+      .then(setCharts)
+      .catch(() => setCharts([]));
+  }, []);
+
+  // ── Slash-command picker plumbing ────────────────────────────────
+  // When the user types `/` at the start (or after whitespace) we open the
+  // chart picker and track what they've typed AFTER the slash as the query.
+  // On selection we strip the entire `/query` fragment from the input.
+
+  function maybeOpenPickerFromInput(value: string, cursor: number) {
+    // Look backwards from the cursor for a slash that starts a "slash token".
+    // A slash token starts at position 0 or right after whitespace.
+    let slashPos = -1;
+    for (let i = cursor - 1; i >= 0; i--) {
+      const ch = value[i];
+      if (ch === "/") {
+        if (i === 0 || /\s/.test(value[i - 1])) slashPos = i;
+        break;
+      }
+      if (/\s/.test(ch)) break;
+    }
+    if (slashPos < 0) {
+      if (pickerOpen) setPickerOpen(false);
+      return;
+    }
+    const query = value.slice(slashPos + 1, cursor);
+    // Disallow spaces in the slash query — if the user typed past a space
+    // the token is over.
+    if (/\s/.test(query)) {
+      if (pickerOpen) setPickerOpen(false);
+      return;
+    }
+    setSlashQuery(query);
+    setPickerActive(0);
+    if (!pickerOpen) setPickerOpen(true);
+  }
+
+  function handleInputChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const value = e.target.value;
+    setInput(value);
+    const cursor = e.target.selectionStart ?? value.length;
+    maybeOpenPickerFromInput(value, cursor);
+  }
+
+  function closePicker() {
+    setPickerOpen(false);
+    setSlashQuery("");
+    setPickerActive(0);
+  }
+
+  function selectChartFromPicker(chart: ChartMeta) {
+    // Strip the "/<query>" fragment from the input at the current cursor.
+    const el = inputRef.current;
+    const value = input;
+    const cursor = el?.selectionStart ?? value.length;
+    // Find the slash again (mirrors maybeOpenPickerFromInput)
+    let slashPos = -1;
+    for (let i = cursor - 1; i >= 0; i--) {
+      const ch = value[i];
+      if (ch === "/") {
+        if (i === 0 || /\s/.test(value[i - 1])) slashPos = i;
+        break;
+      }
+      if (/\s/.test(ch)) break;
+    }
+    const before = slashPos >= 0 ? value.slice(0, slashPos) : value;
+    const after = value.slice(cursor);
+    // Collapse a trailing space from `before` + leading space from `after`
+    // so we don't leave dangling whitespace where the slash token used to be.
+    const joined = (before + after).replace(/\s{2,}/g, " ").replace(/^\s+/, "");
+    setInput(joined);
+    setAttachedChart({
+      chart_id: chart.chart_id,
+      title: chart.title,
+      sql_query: chart.sql_query,
+    });
+    closePicker();
+    // Restore focus + put cursor where the slash used to be
+    setTimeout(() => {
+      const node = inputRef.current;
+      if (!node) return;
+      node.focus();
+      const pos = Math.min(before.length, joined.length);
+      node.setSelectionRange(pos, pos);
+    }, 0);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const text = input.trim();
     if (!text || streaming) return;
 
+    const sentChart = attachedChart;
     const userMsg: Message = {
       id: crypto.randomUUID(),
       role: "user",
       content: text,
       timestamp: new Date(),
+      attachedChart: sentChart ?? undefined,
     };
     const assistantId = crypto.randomUUID();
     const assistantMsg: Message = {
@@ -362,6 +474,8 @@ function ChatPageInner() {
     }
     streamingMsgIdRef.current = assistantId;
     setInput("");
+    setAttachedChart(null);
+    closePicker();
     setStreaming(true);
 
     abortRef.current?.abort();
@@ -389,7 +503,11 @@ function ChatPageInner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ query: text, session_id: streamSessionId }),
+        body: JSON.stringify({
+          query: text,
+          session_id: streamSessionId,
+          chart_context: sentChart ?? null,
+        }),
         signal: controller.signal,
       });
 
@@ -504,6 +622,36 @@ function ChatPageInner() {
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // When the chart picker is open, arrow keys/enter/escape drive it.
+    if (pickerOpen) {
+      const matches = pickerMatchesRef.current;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (matches.length > 0) {
+          setPickerActive((idx) => (idx + 1) % matches.length);
+        }
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (matches.length > 0) {
+          setPickerActive((idx) => (idx - 1 + matches.length) % matches.length);
+        }
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const pick = matches[pickerActive];
+        if (pick) selectChartFromPicker(pick);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closePicker();
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
@@ -629,6 +777,14 @@ function ChatPageInner() {
                           isStreaming={streaming && msg.id === streamingMsgIdRef.current}
                           onToggle={() => toggleSteps(msg.id)}
                         />
+                      )}
+                      {msg.role === "user" && msg.attachedChart && (
+                        <div className="mb-2 flex items-center gap-1.5 rounded-md border border-blue-300/50 bg-blue-500/30 px-2 py-1 text-[11px] text-blue-50">
+                          <BarChart3 size={11} className="shrink-0" />
+                          <span className="truncate font-medium">
+                            {msg.attachedChart.title}
+                          </span>
+                        </div>
                       )}
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                       {msg.role === "assistant" && msg.content && (
@@ -772,16 +928,57 @@ function ChatPageInner() {
       {/* Input bar — constrained width, compact */}
       <form
         onSubmit={handleSubmit}
-        className="border-t border-[var(--card-border)] pt-3 pb-1"
+        className="relative border-t border-[var(--card-border)] pt-3 pb-1"
       >
+        <ChartPickerPopover
+          open={pickerOpen}
+          charts={charts}
+          excludeIds={attachedChart ? [attachedChart.chart_id] : []}
+          query={slashQuery}
+          activeIndex={pickerActive}
+          onActiveIndexChange={setPickerActive}
+          onSelect={selectChartFromPicker}
+          onClose={closePicker}
+          onMatchesChange={(m) => {
+            pickerMatchesRef.current = m;
+          }}
+        />
         <div className="mx-auto w-full max-w-3xl">
+          {attachedChart && (
+            <div className="mb-2 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50/60 px-3 py-1.5 text-xs text-blue-700">
+              <BarChart3 size={12} className="shrink-0" />
+              <span className="truncate font-medium">{attachedChart.title}</span>
+              <span className="text-[10px] uppercase tracking-wide text-blue-500">
+                attached
+              </span>
+              <button
+                type="button"
+                onClick={() => setAttachedChart(null)}
+                className="ml-auto flex h-5 w-5 items-center justify-center rounded-md text-blue-500 hover:bg-blue-100 hover:text-blue-700"
+                title="Detach chart"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
           <div className="flex items-end gap-2 rounded-xl border border-[var(--card-border)] bg-white px-4 py-3 shadow-sm transition-shadow focus-within:border-blue-300 focus-within:shadow-md">
             <textarea
               ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
+              onKeyUp={(e) => {
+                // keep picker state in sync after cursor-only movements
+                const el = e.currentTarget;
+                maybeOpenPickerFromInput(el.value, el.selectionStart ?? 0);
+              }}
               onKeyDown={handleKeyDown}
-              placeholder="Ask a question about your data…"
+              onBlur={() => {
+                // Small delay so a click on a picker item still registers.
+                setTimeout(() => {
+                  if (document.activeElement !== inputRef.current) closePicker();
+                }, 150);
+              }}
+              placeholder="Ask a question about your data… (type / to attach a chart)"
               rows={1}
               className="max-h-36 min-h-[52px] flex-1 resize-none bg-transparent py-1 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none"
             />

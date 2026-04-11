@@ -13,6 +13,24 @@ export async function fetchDashboard<T>(endpoint: string): Promise<T> {
   return res.json();
 }
 
+// ── Chart metadata (for chat slash-command chart picker) ─────────
+
+export type ChartMeta = {
+  chart_id: string;
+  title: string;
+  description: string;
+  chart_type: "kpi" | "bar" | "line" | "pie" | "donut";
+  sql_query: string;
+};
+
+export async function fetchChartsMetadata(): Promise<ChartMeta[]> {
+  const res = await fetch(`${API_BASE}/api/dashboard/charts/metadata`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(`Charts metadata API error: ${res.status}`);
+  return res.json();
+}
+
 export async function fetchSessions<T>(): Promise<T> {
   const res = await fetch(`${API_BASE}/api/history/sessions`, {
     credentials: "include",

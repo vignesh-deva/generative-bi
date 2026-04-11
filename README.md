@@ -6,7 +6,7 @@ An AI-powered BI tool where users ask business questions in natural language and
 
 ## Overview
 
-Business users interact with the system through a chat interface. Questions are processed by a **4-stage agentic pipeline** (orchestrated with LangGraph) that classifies intent, disambiguates queries, links relevant schema, generates and validates SQL, self-repairs on errors, and streams structured insights back via SSE. A separate Dashboard page displays static chart cards, and business users can submit requests for new dashboards.
+Business users interact with the system through a chat interface. Questions are processed by a **multi-stage agentic pipeline** (orchestrated with LangGraph) that rewrites follow-ups, classifies intent, disambiguates queries, links relevant schema, generates and validates SQL, self-repairs on errors, and streams structured insights back via SSE. A separate Dashboard page displays static chart cards, and business users can submit requests for new dashboards.
 
 A dedicated **Operations Center** portal (separate app) allows the BI/dev team to review feedback, curate few-shot SQL examples in the vector store, and manage dashboard development tickets.
 
@@ -22,38 +22,93 @@ All services run via **Docker Compose**. LLM and embedding models are consumed v
 >
 > To view: open the file directly in any browser, or run `start docs/agent-pipeline-design.html` (Windows) / `open docs/agent-pipeline-design.html` (Mac).
 
-The pipeline is a 4-stage agentic system with 12 agents, parallel fan-out, a self-repair loop, and a small/large model split for cost and latency optimization:
+The pipeline is a multi-stage agentic system with parallel fan-out, a self-repair loop, and a small/large model split for cost and latency optimization. The full graph is implemented in LangGraph — see [`user_portal/backend/graph/pipeline.py`](user_portal/backend/graph/pipeline.py).
 
 ```
-Stage 1: Pre-processing (4-way parallel)
-├── Guardrails Agent [small]          LLM-based safety check
-├── Classifier + Disambiguator [small] Intent + ambiguity detection
-├── RAG Agent [small + tool]          Few-shot retrieval (pgvector)
-└── Schema Linker Agent [small + tool] Select relevant tables only
+Stage 0: Context Preparation
+├── History Fetch                       Last 10 turns from MongoDB
+└── Query Rewriter [small]              Resolve follow-up references into standalone queries
+
+Stage 1: Pre-processing (3-way parallel fan-out)
+├── Guardrails Agent [small]            LLM-based safety check
+├── Classifier Agent [small]            Intent: analytics / chitchat / history / ambiguous
+└── RAG Agent [small + tool]            Few-shot retrieval — pgvector cosine similarity
          │
-         ▼ fan-in + route (blocked / ambiguous / chitchat → early exit)
-         │
+         ▼ fan-in → route on merged state
+         ├── blocked / chitchat / history / ambiguous ──► Response Agent [small] ──► exit
+         └── analytics ─────────────────────────────────────────────────────────┐
+                                                                                ▼
 Stage 1B: Context Enrichment
-└── Semantic Layer Agent [small + tool] Metric defs, value samples, join paths
+└── Schema Linker [small + tool]        Select relevant tables + inject Semantic Layer
+                                        (metric defs, FK join paths, value samples, rules)
 
 Stage 2: SQL Generation
 └── SQL Agent [large]
-    ├── tool: Decomposer [small]       Single-step vs multi-step decision
-    └── tool: Sub-query Gen [large]    SQL per sub-query (parallelizable)
+    ├── Adapt path  (RAG similarity ≥ 0.85) — skip decomposition, adapt matched SQL
+    ├── Decomposer [small]              Decide: single-step or multi-step query
+    └── Sub-query Generator [large]     Generate SQL per sub-query
 
-Stage 3: Validation + Self-repair (max 3 iterations)
-├── EXPLAIN dry-run (PostgreSQL)       Catches syntax + schema errors free
-├── Execute query (PostgreSQL)
-├── Error Classifier [small]           Categorize: syntax | schema | logic | runtime
-├── Correction Agent [large]           Targeted fix based on error type
-└── Logic Check Agent [small]          Does the SQL answer the question?
-
-Stage 4: Response Synthesis
-└── Insight Agent [large]              NL business insight
+Stage 3: Validation + Self-repair  (max 3 iterations per loop)
+│
+├── EXPLAIN dry-run (PostgreSQL)        Syntax/schema check — zero LLM cost
+│   └── on fail ──► Error Classifier [small] ──► Correction Agent [large] ──► retry dry-run
+│
+├── Execute query (read-only PostgreSQL transaction)
+│   ├── on adapt path ────────────────────────────────────────────────────────────────┐
+│   └── on execution error ──► Insight Agent (error message) ──► exit                 │
+│                                                                                      ▼
+└── Logic Check Agent [small + tools]   Does the result actually answer the question? │
+    └── on fail ──► Correction Agent [large] ──► reset dry-run budget ──► retry loop  │
+                                                                                       │
+Stage 4: Response Synthesis  ◄─────────────────────────────────────────────────────────┘
+└── Insight Agent [large]               Generate NL business insight from query result
          │
          ▼
     SSE stream → Frontend
 ```
+
+<details>
+<summary><strong>Agent Inventory, Error Taxonomy &amp; Timing — full reference (click to expand)</strong></summary>
+
+### Agent Inventory
+
+| Agent | Model | Purpose | Tools |
+|---|---|---|---|
+| Query Rewriter | small | Resolves follow-up references (pronouns, co-references, ellipsis) into a self-contained standalone query using recent chat history. Skips the LLM call entirely when there is no history. Chart context (`chart_id`, `title`, `sql_query`) injected when user attaches a dashboard chart via the slash-command picker. | none |
+| Guardrails | small | LLM-based safety — prompt injection, SQL injection in NL, system prompt extraction | none |
+| Classifier + Disambiguator | small | Intent routing (chitchat / history / analytics) + ambiguity detection. Receives recent chat history for follow-up resolution. Streams clarification question if ambiguous. | none |
+| Response Agent | small | Handles all non-analytics intents. Blocked: polite refusal. Ambiguous: asks clarifying question. Chitchat: conversational reply. History: fetches recent chat from MongoDB, summarizes or answers. | `fetch_chat_history` — MongoDB session/message lookup |
+| RAG Agent | small | Retrieve similar NL→SQL examples for few-shot context. Runs in parallel with Guardrails + Classifier during Stage 1. | `search_fewshots` — pgvector cosine similarity |
+| Schema Linker | small | LLM-based table selection — identifies the minimal set of tables needed, fetches their DDL + value samples (so the SQL Agent uses exact entity names, not ILIKE guesses). In the same pass, injects semantic context: metric definitions, FK join paths, business rules. Runs sequentially in Stage 1B after the fan-in router. Chart context injected when attached. | `list_tables`, `pull_schema`, `value_samples`, `get_semantic_context` |
+| SQL Agent | large | Core SQL generation with CoT reasoning. RAG few-shot examples injected as exemplars. Receives today's date and value samples from Schema Agent — uses exact values rather than ILIKE guesses. | `decompose`, `generate_subquery` |
+| &emsp;Decomposer *(sub-agent)* | small | Decide single-step vs multi-step, plan sub-queries. If RAG similarity ≥ 0.85, skips decomposition and adapts the matched query directly. | — |
+| &emsp;Sub-query Gen *(sub-agent)* | large | Generate SQL for each sub-query (parallelizable) | — |
+| Error Classifier | small | Categorize errors: syntax, schema, logic, runtime | none |
+| Correction Agent | large | Targeted SQL fix based on error type. Has full access to schema and sample values for informed corrections. | `pull_schema`, `value_samples`, `dry_run_explain` |
+| Validation Agent (Logic Check) | small | Post-execution logic check via agentic tool-calling loop (max 3 rounds). LLM verifies the SQL answers the question, checking dates, column values, join paths, and running test queries before rendering a verdict. Falls back to single-shot for providers without function calling. | `get_current_date`, `lookup_column`, `get_schema`, `get_join_info`, `run_test_query` |
+| Insight Agent | large | NL business insight — cites numbers, explains reasoning, flags assumptions. Chart context injected when attached so the insight is framed relative to the referenced chart. | — |
+
+### Error Taxonomy
+
+| Type | Source | Example | Correction Strategy |
+|---|---|---|---|
+| `syntax` | EXPLAIN | syntax error at or near "FORM" | Show exact Postgres error message |
+| `schema` | EXPLAIN | relation "product" does not exist | Re-inject linked schema, highlight correct name (`products`) |
+| `logic` | Logic Check | Returns all-time revenue but user asked for Q1 | Provide logic feedback + original query for re-generation |
+| `runtime` | EXPLAIN / Execute | column "name" is ambiguous | Show ambiguous reference + tables involved |
+
+### LLM Call Count
+
+| Path | LLM calls |
+|---|---|
+| Non-analytics (chitchat / blocked / ambiguous) | 4 — Rewriter + Guardrails + Classifier + Response Agent |
+| Analytics, adapt path (strong RAG match ≥ 0.85) | ~7 — skips decomposition and logic check |
+| Analytics, full path, no retries | ~10 |
+| Analytics, full path, max retries (3) | ~16 — Error Classifier + Correction per retry + Logic correction |
+
+Query Rewriter is skipped entirely when there is no chat history.
+
+</details>
 
 ---
 
@@ -74,6 +129,10 @@ Stage 4: Response Synthesis
 ---
 
 ## Architecture
+
+![System Architecture](<docs/System Architecture.jpg>)
+
+The system is composed of two portals (user-facing and operations), a shared data layer, and an external LLM/embedding API. All services are orchestrated via Docker Compose.
 
 ```
 docker-compose.yml
@@ -239,9 +298,10 @@ All data is persisted via Docker named volumes (`pg-data`, `mongo-data`). Data s
 
 ## Key Features
 
-- 4-stage agentic NL-to-SQL pipeline with 12 agents (LangGraph)
+- Multi-stage agentic NL-to-SQL pipeline (LangGraph) with 12 agents
 - Small/large model split — fast routing + powerful generation
-- 4-way parallel pre-processing (Guardrails, Classifier, RAG, Schema Linker)
+- 3-way parallel pre-processing (Guardrails, Classifier, RAG) with conditional routing
+- Query Rewriter — resolves follow-up references into standalone queries before fan-out
 - Schema Linking — only relevant tables sent to LLM (not the full schema)
 - Semantic Layer — metric definitions, value samples, FK join paths, business rules
 - Query disambiguation — asks user to clarify ambiguous questions

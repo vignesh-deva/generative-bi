@@ -16,6 +16,7 @@ from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_D
 logger = logging.getLogger(__name__)
 from agents.tools.schema_tools import list_tables, pull_schema, pull_value_samples
 from agents.tools.semantic_tools import get_semantic_context
+from utils.chart_context import format_chart_context_block
 from utils.timing import AsyncTimedSpan
 
 # Cap fallback table count to keep the schema prompt within context budget
@@ -42,7 +43,7 @@ Query: "What is the total revenue by zone for last month?"
 Answer: sales,retailers,cities,states,zones"""
 
 
-async def link_schema(query: str) -> dict:
+async def link_schema(query: str, chart_context: dict | None = None) -> dict:
     """Identify relevant tables and return their schema + semantic context.
 
     Returns:
@@ -55,14 +56,15 @@ async def link_schema(query: str) -> dict:
     async with AsyncTimedSpan("schema_linker.list_tables"):
         all_tables = await list_tables()
 
+    system_content = SYSTEM_PROMPT.format(
+        domain=DOMAIN_DESCRIPTION, tables=", ".join(all_tables)
+    ) + format_chart_context_block(chart_context)
+
     async with AsyncTimedSpan("schema_linker.llm_pick_tables"):
         response = await _client.chat.completions.create(
             model=LLM_MODEL_SMALL,
             messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT.format(domain=DOMAIN_DESCRIPTION, tables=", ".join(all_tables)),
-                },
+                {"role": "system", "content": system_content},
                 {"role": "user", "content": query},
             ],
             temperature=0,

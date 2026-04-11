@@ -11,6 +11,7 @@ import logging
 from openai import AsyncOpenAI
 
 from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION, LLM_REQUEST_TIMEOUT
+from utils.chart_context import format_chart_context_block
 
 logger = logging.getLogger(__name__)
 
@@ -40,22 +41,29 @@ def _format_history(chat_history: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def rewrite_query(query: str, chat_history: list[dict] | None = None) -> str:
+async def rewrite_query(
+    query: str,
+    chat_history: list[dict] | None = None,
+    chart_context: dict | None = None,
+) -> str:
     """Resolve follow-up references in the query using chat history.
 
-    Returns the query unchanged if there is no history to resolve against.
+    Returns the query unchanged if there is no history AND no chart context to
+    resolve against — without either, there's nothing to rewrite.
     """
-    if not chat_history:
-        logger.info("rewrite=skipped reason=no_history")
+    if not chat_history and not chart_context:
+        logger.info("rewrite=skipped reason=no_history_or_chart")
         return query
 
-    history_block = _format_history(chat_history)
+    history_block = _format_history(chat_history) if chat_history else "  (none)"
     user_content = f"Chat history:\n{history_block}\n\nLatest message: {query}"
+
+    system_prompt = SYSTEM_PROMPT + format_chart_context_block(chart_context)
 
     response = await _client.chat.completions.create(
         model=LLM_MODEL_SMALL,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
         temperature=0,

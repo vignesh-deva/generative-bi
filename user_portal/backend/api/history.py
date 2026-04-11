@@ -43,6 +43,7 @@ async def get_messages(session_id: str):
         m.setdefault("message_id", None)
         m.setdefault("feedback", None)
         m.setdefault("feedback_comment", None)
+        m.setdefault("chart_context", None)
         if m.get("feedback_at") is not None:
             m["feedback_at"] = m["feedback_at"].isoformat()
         else:

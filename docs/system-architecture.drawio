@@ -1,0 +1,263 @@
+<mxfile host="Electron" modified="2026-04-11T00:00:00.000Z" agent="draw.io" version="21.0.0" type="device">
+  <diagram name="System Architecture" id="genbi-sys-arch">
+    <mxGraphModel dx="1422" dy="762" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="800" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ═══════════════════════════════════════════════════════════
+             TITLE + SUBTITLE
+        ════════════════════════════════════════════════════════════ -->
+        <mxCell id="title" value="Generative BI Platform — System Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=20;fontStyle=1;fontColor=#1A237E;" vertex="1" parent="1">
+          <mxGeometry x="0" y="8" width="1400" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="FMCG Supply Chain Analytics · NL→SQL Agentic Pipeline · LangGraph Orchestration · Docker Compose (6 services)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=11;fontColor=#546E7A;" vertex="1" parent="1">
+          <mxGeometry x="0" y="42" width="1400" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             USER PORTAL  (x=30, w=420)
+        ════════════════════════════════════════════════════════════ -->
+        <mxCell id="up" value="USER PORTAL" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#E3F2FD;strokeColor=#1565C0;fontColor=#1565C0;fontSize=12;rounded=1;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="30" y="66" width="420" height="712" as="geometry" />
+        </mxCell>
+
+        <!-- Business User -->
+        <mxCell id="up_user" value="👤  Business User" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#BBDEFB;strokeColor=#1976D2;fontColor=#0D47A1;fontSize=12;fontStyle=1;arcSize=8;" vertex="1" parent="up">
+          <mxGeometry x="110" y="38" width="200" height="44" as="geometry" />
+        </mxCell>
+
+        <!-- Down arrow: User → FE -->
+        <mxCell id="a_user_fe" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeColor=#1976D2;strokeWidth=2;" edge="1" source="up_user" target="up_fe" parent="up">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Frontend Container -->
+        <mxCell id="up_fe" value="Frontend · Next.js  (port 3000)" style="swimlane;fontStyle=1;align=center;startSize=24;fillColor=#EBF5FF;strokeColor=#2196F3;fontColor=#0D47A1;fontSize=11;rounded=1;arcSize=4;" vertex="1" parent="up">
+          <mxGeometry x="10" y="100" width="400" height="240" as="geometry" />
+        </mxCell>
+
+        <!-- FE: Chat -->
+        <mxCell id="up_fe_chat" value="&lt;b&gt;💬 Chat&lt;/b&gt;&lt;br&gt;NL query input · SSE streaming response&lt;br&gt;Pipeline steps panel · SQL viewer&lt;br&gt;Attach chart as context" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#64B5F6;fontColor=#1565C0;fontSize=9;align=left;spacingLeft=6;" vertex="1" parent="up_fe">
+          <mxGeometry x="8" y="32" width="186" height="58" as="geometry" />
+        </mxCell>
+
+        <!-- FE: Dashboard -->
+        <mxCell id="up_fe_dash" value="&lt;b&gt;📊 Dashboard&lt;/b&gt;&lt;br&gt;9-panel KPI grid · Recharts&lt;br&gt;INR formatting · Attach chart&lt;br&gt;as chat context (slash picker)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#64B5F6;fontColor=#1565C0;fontSize=9;align=left;spacingLeft=6;" vertex="1" parent="up_fe">
+          <mxGeometry x="206" y="32" width="186" height="58" as="geometry" />
+        </mxCell>
+
+        <!-- FE: History -->
+        <mxCell id="up_fe_hist" value="&lt;b&gt;🕒 Chat History&lt;/b&gt;&lt;br&gt;Session list · Resume session&lt;br&gt;Relative timestamps" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#64B5F6;fontColor=#1565C0;fontSize=9;align=left;spacingLeft=6;" vertex="1" parent="up_fe">
+          <mxGeometry x="8" y="100" width="186" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- FE: Requests -->
+        <mxCell id="up_fe_req" value="&lt;b&gt;📋 Request Dashboard&lt;/b&gt;&lt;br&gt;Submit with chat context · Track&lt;br&gt;8-state lifecycle · Comment thread" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#64B5F6;fontColor=#1565C0;fontSize=9;align=left;spacingLeft=6;" vertex="1" parent="up_fe">
+          <mxGeometry x="206" y="100" width="186" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- FE: Auth -->
+        <mxCell id="up_fe_auth" value="🔐  JWT Auth · Login page · Cookie-based session  (auth_token)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontColor=#E65100;fontSize=9;" vertex="1" parent="up_fe">
+          <mxGeometry x="50" y="164" width="300" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- FE → BE arrow (inside up container) -->
+        <mxCell id="a_fe_be" value="HTTP + SSE" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#1565C0;strokeWidth=2;fontColor=#1565C0;fontSize=9;fontStyle=2;" edge="1" source="up_fe" target="up_be" parent="up">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Backend Container -->
+        <mxCell id="up_be" value="Backend · FastAPI  (port 8000)" style="swimlane;fontStyle=1;align=center;startSize=24;fillColor=#E1F0FF;strokeColor=#1565C0;fontColor=#0D47A1;fontSize=11;rounded=1;arcSize=4;" vertex="1" parent="up">
+          <mxGeometry x="10" y="358" width="400" height="340" as="geometry" />
+        </mxCell>
+
+        <!-- BE: API endpoints row -->
+        <mxCell id="up_be_chat" value="POST /api/chat (SSE)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5C6BC0;fontColor=#283593;fontSize=9;" vertex="1" parent="up_be">
+          <mxGeometry x="8" y="32" width="186" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="up_be_hist" value="GET/POST /api/history" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5C6BC0;fontColor=#283593;fontSize=9;" vertex="1" parent="up_be">
+          <mxGeometry x="206" y="32" width="186" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="up_be_req" value="GET/POST /api/requests" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5C6BC0;fontColor=#283593;fontSize=9;" vertex="1" parent="up_be">
+          <mxGeometry x="8" y="68" width="186" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="up_be_dash" value="GET /api/dashboard" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#5C6BC0;fontColor=#283593;fontSize=9;" vertex="1" parent="up_be">
+          <mxGeometry x="206" y="68" width="186" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- BE: LangGraph Pipeline -->
+        <mxCell id="up_pipe" value="⚡ LangGraph Agent Pipeline" style="swimlane;fontStyle=1;align=center;startSize=24;fillColor=#E0F7FA;strokeColor=#00838F;fontColor=#006064;fontSize=10;rounded=1;arcSize=4;" vertex="1" parent="up_be">
+          <mxGeometry x="8" y="106" width="384" height="224" as="geometry" />
+        </mxCell>
+
+        <!-- Pipeline stages -->
+        <mxCell id="pipe_s0" value="Stage 0 · Fetch Chat History (MongoDB) + Query Rewriter [+ Chart Context]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#B2EBF2;strokeColor=#00838F;fontColor=#004D50;fontSize=8;" vertex="1" parent="up_pipe">
+          <mxGeometry x="8" y="30" width="368" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="pipe_s1" value="Stage 1 · Parallel fan-out (×3):  Guardrails  ·  Classifier  ·  RAG →  route: analytics / non-analytics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#B2EBF2;strokeColor=#00838F;fontColor=#004D50;fontSize=8;" vertex="1" parent="up_pipe">
+          <mxGeometry x="8" y="62" width="368" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="pipe_s1b" value="Stage 1B · Schema Linker (table selection, DDL, value samples, semantic context)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#B2EBF2;strokeColor=#00838F;fontColor=#004D50;fontSize=8;" vertex="1" parent="up_pipe">
+          <mxGeometry x="8" y="94" width="368" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="pipe_s2" value="Stage 2 · SQL Agent + Decomposer sub-agent  (large model · RAG few-shot exemplars)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#B2EBF2;strokeColor=#00838F;fontColor=#004D50;fontSize=8;" vertex="1" parent="up_pipe">
+          <mxGeometry x="8" y="126" width="368" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="pipe_s3" value="Stage 3 · Dry-run (EXPLAIN) → Execute → Logic Check  ·  self-repair loop (max 3 retries)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#B2EBF2;strokeColor=#00838F;fontColor=#004D50;fontSize=8;" vertex="1" parent="up_pipe">
+          <mxGeometry x="8" y="158" width="368" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="pipe_s4" value="Stage 4 · Insight Agent (large model) → SSE stream to frontend" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#B2EBF2;strokeColor=#00838F;fontColor=#004D50;fontSize=8;" vertex="1" parent="up_pipe">
+          <mxGeometry x="8" y="190" width="368" height="26" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             DATA LAYER  (x=490, w=300)
+        ════════════════════════════════════════════════════════════ -->
+        <mxCell id="dl" value="DATA LAYER" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#F1F8E9;strokeColor=#388E3C;fontColor=#1B5E20;fontSize=12;rounded=1;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="490" y="66" width="320" height="712" as="geometry" />
+        </mxCell>
+
+        <!-- External LLM -->
+        <mxCell id="dl_llm" value="&lt;b&gt;🤖 External LLM API&lt;/b&gt;&lt;br&gt;OpenAI-compatible endpoint&lt;br&gt;(Ollama / LM Studio / OpenAI)&lt;br&gt;&lt;br&gt;Small model: classify, rewrite, guard, schema&lt;br&gt;Large model: SQL gen, correction, insight" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F57F17;fontColor=#E65100;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="dl">
+          <mxGeometry x="10" y="38" width="300" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- PostgreSQL + pgvector -->
+        <mxCell id="dl_pg" value="&lt;b&gt;🐘 PostgreSQL + pgvector&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;Business Data (FMCG):&lt;/b&gt;&lt;br&gt;categories · products · zones · states · cities&lt;br&gt;distributors · wholesalers · retailers&lt;br&gt;orders · order_items · shipments&lt;br&gt;sales · inventory&lt;br&gt;&lt;br&gt;&lt;b&gt;Vector Store (pgvector):&lt;/b&gt;&lt;br&gt;fewshot_examples — NL→SQL exemplars&lt;br&gt;cosine similarity search (RAG)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#388E3C;fontColor=#1B5E20;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="dl">
+          <mxGeometry x="10" y="168" width="300" height="206" as="geometry" />
+        </mxCell>
+
+        <!-- MongoDB -->
+        <mxCell id="dl_mongo" value="&lt;b&gt;🍃 MongoDB&lt;/b&gt;&lt;br&gt;&lt;br&gt;chat_sessions — session metadata&lt;br&gt;messages — turn-by-turn history + feedback&lt;br&gt;dashboard_requests — 8-state lifecycle&lt;br&gt;&amp;nbsp;&amp;nbsp;(draft→requested→in-progress→need-details&lt;br&gt;&amp;nbsp;&amp;nbsp;→completed→accepted/changes→closed)&lt;br&gt;&lt;br&gt;Indexes: session_id, request_id, user_id" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#388E3C;fontColor=#1B5E20;fontSize=9;align=left;spacingLeft=8;" vertex="1" parent="dl">
+          <mxGeometry x="10" y="394" width="300" height="168" as="geometry" />
+        </mxCell>
+
+        <!-- Docker Compose note -->
+        <mxCell id="dl_docker" value="🐳  Docker Compose — 6 services&lt;br&gt;portal-fe · portal-be · ops-fe · ops-be · postgres · mongodb&lt;br&gt;Named volumes · Both backends connect to both DBs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E5F5;strokeColor=#7B1FA2;fontColor=#4A148C;fontSize=9;" vertex="1" parent="dl">
+          <mxGeometry x="10" y="580" width="300" height="56" as="geometry" />
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="dl_legend" value="&lt;b&gt;Arrow legend&lt;/b&gt;&lt;br&gt;─────  HTTP / SQL / SSE&lt;br&gt;- - -   read (ops review)&lt;br&gt;═════  promote to RAG" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#BDBDBD;fontColor=#424242;fontSize=9;align=left;spacingLeft=6;" vertex="1" parent="dl">
+          <mxGeometry x="10" y="650" width="300" height="54" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             OPS PORTAL  (x=850, w=420)
+        ════════════════════════════════════════════════════════════ -->
+        <mxCell id="op" value="OPS PORTAL  /  OPERATIONS CENTER" style="swimlane;fontStyle=1;align=center;startSize=30;fillColor=#F3E5F5;strokeColor=#7B1FA2;fontColor=#7B1FA2;fontSize=12;rounded=1;arcSize=2;" vertex="1" parent="1">
+          <mxGeometry x="850" y="66" width="420" height="712" as="geometry" />
+        </mxCell>
+
+        <!-- BI Team User -->
+        <mxCell id="op_user" value="👥  BI Team / Analyst" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1BEE7;strokeColor=#7B1FA2;fontColor=#4A148C;fontSize=12;fontStyle=1;arcSize=8;" vertex="1" parent="op">
+          <mxGeometry x="110" y="38" width="200" height="44" as="geometry" />
+        </mxCell>
+
+        <!-- Down arrow: Ops User → Ops FE -->
+        <mxCell id="a_opuser_opfe" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#7B1FA2;strokeWidth=2;" edge="1" source="op_user" target="op_fe" parent="op">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Ops Frontend Container -->
+        <mxCell id="op_fe" value="Frontend · Next.js  (port 3001)" style="swimlane;fontStyle=1;align=center;startSize=24;fillColor=#F8F0FF;strokeColor=#9C27B0;fontColor=#4A148C;fontSize=11;rounded=1;arcSize=4;" vertex="1" parent="op">
+          <mxGeometry x="10" y="100" width="400" height="236" as="geometry" />
+        </mxCell>
+
+        <!-- Ops FE: Tickets -->
+        <mxCell id="op_fe_tix" value="&lt;b&gt;🎫 Tickets&lt;/b&gt;&lt;br&gt;Review dashboard requests · 8-status tabs&lt;br&gt;Chat context preview · Transition buttons&lt;br&gt;Comment threads · Status updates" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#CE93D8;fontColor=#4A148C;fontSize=9;align=left;spacingLeft=6;" vertex="1" parent="op_fe">
+          <mxGeometry x="8" y="32" width="186" height="64" as="geometry" />
+        </mxCell>
+
+        <!-- Ops FE: Feedback -->
+        <mxCell id="op_fe_fb" value="&lt;b&gt;👍 Feedback&lt;/b&gt;&lt;br&gt;Thumbs up/down filter&lt;br&gt;View AI responses with SQL&lt;br&gt;Mark reviewed · Promote to RAG" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#CE93D8;fontColor=#4A148C;fontSize=9;align=left;spacingLeft=6;" vertex="1" parent="op_fe">
+          <mxGeometry x="206" y="32" width="186" height="64" as="geometry" />
+        </mxCell>
+
+        <!-- Ops FE: RAG Curation -->
+        <mxCell id="op_fe_rag" value="&lt;b&gt;🧠 RAG Curation&lt;/b&gt;&lt;br&gt;List / add NL→SQL few-shot examples&lt;br&gt;Curate training exemplars&lt;br&gt;pgvector embedding on save" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#CE93D8;fontColor=#4A148C;fontSize=9;align=left;spacingLeft=6;" vertex="1" parent="op_fe">
+          <mxGeometry x="8" y="108" width="186" height="64" as="geometry" />
+        </mxCell>
+
+        <!-- Ops FE: Auth -->
+        <mxCell id="op_fe_auth" value="🔐  JWT Auth · Login page · Cookie-based session  (ops_auth_token)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontColor=#E65100;fontSize=9;" vertex="1" parent="op_fe">
+          <mxGeometry x="50" y="186" width="300" height="28" as="geometry" />
+        </mxCell>
+
+        <!-- Ops FE → Ops BE arrow -->
+        <mxCell id="a_opfe_opbe" value="HTTP" style="edgeStyle=orthogonalEdgeStyle;rounded=0;strokeColor=#7B1FA2;strokeWidth=2;fontColor=#7B1FA2;fontSize=9;fontStyle=2;" edge="1" source="op_fe" target="op_be" parent="op">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Ops Backend Container -->
+        <mxCell id="op_be" value="Backend · FastAPI  (port 8001)" style="swimlane;fontStyle=1;align=center;startSize=24;fillColor=#EDE0F5;strokeColor=#7B1FA2;fontColor=#4A148C;fontSize=11;rounded=1;arcSize=4;" vertex="1" parent="op">
+          <mxGeometry x="10" y="354" width="400" height="214" as="geometry" />
+        </mxCell>
+
+        <!-- Ops BE: API endpoints -->
+        <mxCell id="op_be_tix" value="GET /api/tickets&lt;br&gt;PATCH /api/tickets/:id · state machine transitions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9575CD;fontColor=#4A148C;fontSize=9;" vertex="1" parent="op_be">
+          <mxGeometry x="8" y="32" width="384" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="op_be_fb" value="GET /api/feedback · read thumbs-up/down per message" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9575CD;fontColor=#4A148C;fontSize=9;" vertex="1" parent="op_be">
+          <mxGeometry x="8" y="74" width="384" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="op_be_rag" value="GET /api/rag/fewshots · POST /api/rag/fewshots  (write to pgvector with embedding)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9575CD;fontColor=#4A148C;fontSize=9;" vertex="1" parent="op_be">
+          <mxGeometry x="8" y="110" width="384" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="op_be_db" value="PostgreSQL pool (asyncpg) + MongoDB (motor) — same DB servers as User Portal backend" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontColor=#E65100;fontSize=9;" vertex="1" parent="op_be">
+          <mxGeometry x="8" y="148" width="384" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="op_be_auth" value="POST /auth/login · verify_token dependency on all routes · /health public" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9575CD;fontColor=#4A148C;fontSize=9;" vertex="1" parent="op_be">
+          <mxGeometry x="8" y="184" width="384" height="22" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             CROSS-CONTAINER ARROWS
+        ════════════════════════════════════════════════════════════ -->
+
+        <!-- User BE → LLM -->
+        <mxCell id="a_be_llm" value="LLM API calls (~10 per analytics query)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#F57F17;strokeWidth=2;fontColor=#E65100;fontSize=9;fontStyle=2;dashed=0;" edge="1" source="up_be" target="dl_llm" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- User Pipeline → PostgreSQL (SQL queries) -->
+        <mxCell id="a_pipe_pg" value="SQL queries (asyncpg)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#388E3C;strokeWidth=2;fontColor=#1B5E20;fontSize=9;fontStyle=2;" edge="1" source="up_pipe" target="dl_pg" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- RAG → pgvector retrieval label on same arrow, or separate note -->
+        <!-- User BE → MongoDB (chat + requests persistence) -->
+        <mxCell id="a_be_mongo" value="Chat persistence · Request writes (motor)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=1;exitY=0.85;exitDx=0;exitDy=0;entryX=0;entryY=0.4;entryDx=0;entryDy=0;strokeColor=#388E3C;strokeWidth=2;fontColor=#1B5E20;fontSize=9;fontStyle=2;" edge="1" source="up_be" target="dl_mongo" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Ops BE → MongoDB (read requests + feedback) -->
+        <mxCell id="a_opbe_mongo" value="Read requests + feedback" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.6;entryDx=0;entryDy=0;strokeColor=#7B1FA2;strokeWidth=2;fontColor=#7B1FA2;fontSize=9;fontStyle=3;dashed=1;" edge="1" source="op_be" target="dl_mongo" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Ops BE → PostgreSQL (promote to RAG) -->
+        <mxCell id="a_opbe_pg" value="Promote to RAG (pgvector write)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0;exitY=0.35;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#7B1FA2;strokeWidth=3;fontColor=#7B1FA2;fontSize=9;fontStyle=3;dashed=0;" edge="1" source="op_be" target="dl_pg" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             KEY USER FLOWS  (callout boxes at bottom)
+        ════════════════════════════════════════════════════════════ -->
+        <mxCell id="flow_chat" value="&lt;b&gt;Chat Flow&lt;/b&gt;&lt;br&gt;User types NL query → Frontend sends to /api/chat → LangGraph pipeline executes (~10 LLM calls) → SQL runs on PostgreSQL → Insight Agent generates summary → SSE streams tokens to UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1565C0;fontColor=#0D47A1;fontSize=9;align=left;spacingLeft=6;" vertex="1" parent="1">
+          <mxGeometry x="30" y="788" width="420" height="54" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flow_ops" value="&lt;b&gt;Ops Feedback → RAG&lt;/b&gt;&lt;br&gt;User gives 👍/👎 on chat message → stored in MongoDB → Ops team reviews in Feedback page → promotes good NL→SQL pairs → POST /api/rag/fewshots writes embedding to pgvector → future RAG retrievals benefit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F3E5F5;strokeColor=#7B1FA2;fontColor=#4A148C;fontSize=9;align=left;spacingLeft=6;" vertex="1" parent="1">
+          <mxGeometry x="850" y="788" width="420" height="54" as="geometry" />
+        </mxCell>
+
+        <mxCell id="flow_req" value="&lt;b&gt;Request Dashboard Flow&lt;/b&gt;&lt;br&gt;User clicks &quot;Request Dashboard&quot; on any AI message → captures question + answer + SQL + last 6 messages as context → POST /api/requests → MongoDB → Ops team reviews in Tickets page → 8-state lifecycle transitions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F1F8E9;strokeColor=#388E3C;fontColor=#1B5E20;fontSize=9;align=left;spacingLeft=6;" vertex="1" parent="1">
+          <mxGeometry x="490" y="788" width="320" height="54" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
