@@ -50,6 +50,11 @@ class PipelineState(TypedDict, total=False):
     # path so the caller can stream insight tokens themselves.
     stream_insight: bool
 
+    # Chart attached by the user via the chat input slash-command picker.
+    # Shape: {"chart_id": str, "title": str, "sql_query": str} or None.
+    # Injected into Rewriter/Schema/SQL/Insight prompts when present.
+    chart_context: dict | None
+
     # Chat history (fetched from MongoDB)
     chat_history: list[dict]
 
@@ -107,6 +112,7 @@ async def rewrite_node(state: PipelineState) -> PipelineState:
     rewritten = await rewrite_query(
         state["query"],
         chat_history=state.get("chat_history"),
+        chart_context=state.get("chart_context"),
     )
     return {"query": rewritten}
 
@@ -180,7 +186,10 @@ async def response_node(state: PipelineState) -> PipelineState:
 
 @timed_node("schema_linker")
 async def schema_linker_node(state: PipelineState) -> PipelineState:
-    result = await link_schema(state["query"])
+    result = await link_schema(
+        state["query"],
+        chart_context=state.get("chart_context"),
+    )
     return {
         "linked_tables": result["tables"],
         "schema_context": result["schema_context"],
@@ -198,6 +207,7 @@ async def sql_node(state: PipelineState) -> PipelineState:
         semantic_context=state.get("semantic_context", ""),
         few_shot_examples=state.get("few_shot_examples", []),
         chat_history=state.get("chat_history", []),
+        chart_context=state.get("chart_context"),
     )
     return {
         "sql_query": sql,
@@ -354,6 +364,7 @@ async def insight_node(state: PipelineState) -> PipelineState:
         query=state["query"],
         sql=state.get("sql_query", ""),
         result=state.get("query_result", {}),
+        chart_context=state.get("chart_context"),
     )
     return {"insight": insight, "response": insight}
 

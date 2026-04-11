@@ -15,6 +15,7 @@ from openai import AsyncOpenAI
 
 from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_MODEL_SMALL, DOMAIN_DESCRIPTION, LLM_REQUEST_TIMEOUT
 from agents.tools.text_utils import strip_markdown_fences
+from utils.chart_context import format_chart_context_block
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,7 @@ async def _generate_single_sql(
     semantic_context: str,
     few_shot_examples: list[dict],
     chat_history: list[dict],
+    chart_context: dict | None = None,
 ) -> str:
     """Generate a single SQL query."""
     system = SYSTEM_PROMPT.format(
@@ -155,7 +157,7 @@ async def _generate_single_sql(
         semantic=semantic_context,
         fewshots=_format_fewshots(few_shot_examples),
         history=_format_chat_history(chat_history),
-    )
+    ) + format_chart_context_block(chart_context)
 
     messages = [
         {"role": "system", "content": system},
@@ -195,6 +197,7 @@ async def _adapt_matched_sql(
     matched: dict,
     schema_context: str,
     semantic_context: str,
+    chart_context: dict | None = None,
 ) -> str:
     """Adapt a high-similarity RAG match to the user's specific question."""
     system = ADAPT_PROMPT.format(
@@ -203,7 +206,7 @@ async def _adapt_matched_sql(
         ref_sql=matched["sql"],
         schema=schema_context,
         semantic=semantic_context,
-    )
+    ) + format_chart_context_block(chart_context)
 
     response = await _client.chat.completions.create(
         model=LLM_MODEL_SMALL,
@@ -228,6 +231,7 @@ async def generate_sql(
     semantic_context: str = "",
     few_shot_examples: list[dict] | None = None,
     chat_history: list[dict] | None = None,
+    chart_context: dict | None = None,
 ) -> tuple[str, str]:
     """Generate SQL for the user's query.
 
@@ -241,7 +245,8 @@ async def generate_sql(
 
     if plan["strategy"] == "adapt":
         sql = await _adapt_matched_sql(
-            query, plan["matched"], schema_context, semantic_context
+            query, plan["matched"], schema_context, semantic_context,
+            chart_context=chart_context,
         )
         return sql, "adapt"
 
@@ -254,12 +259,14 @@ async def generate_sql(
             + f"\n\nOriginal question: {query}"
         )
         sql = await _generate_single_sql(
-            combined_query, schema_context, semantic_context, examples, history
+            combined_query, schema_context, semantic_context, examples, history,
+            chart_context=chart_context,
         )
         return sql, "multi"
 
     # Single strategy (default)
     sql = await _generate_single_sql(
-        query, schema_context, semantic_context, examples, history
+        query, schema_context, semantic_context, examples, history,
+        chart_context=chart_context,
     )
     return sql, "single"

@@ -4,7 +4,7 @@ A running log of decisions, next steps, and open questions for the Generative BI
 
 ---
 
-## Current Sprint: UI & Dashboards
+## Current Sprint: Bug Fixes
 
 ### Completed — Scaffolding & Infrastructure
 - [x] HLD alignment — LangGraph, MongoDB, Docker, ops portal
@@ -116,13 +116,19 @@ A running log of decisions, next steps, and open questions for the Generative BI
 - [x] `PORTAL_USERNAME=testuser`, `PORTAL_PASSWORD=testpass`, `JWT_SECRET` added to root `.env` and all `.env.example` files; passed to Docker services via docker-compose
 - [x] Separate session cookies — user portal uses `auth_token`, ops portal uses `ops_auth_token` — sessions are fully independent
 
+### Completed — Feedback RAG Promotion (2026-04-11, branch: feat/feedback-rag-promotion)
+- [x] Ops portal — Feedback page: promote feedback to RAG, mark reviewed, delete actions wired up
+- [x] Ops portal — RAG Curation: updated queries and curation workflow
+
+### Completed — Chat with Charts (2026-04-11, branch: feat/chat-with-charts)
+- [x] Chart context injected into chat — assistant can reference dashboard chart data in responses
+
 ### Open Bugs
 - [ ] **[BUG]** SSE response lost on session switch — if the user navigates to another chat while a response is still streaming and then returns, the in-progress response is gone. The stream is abandoned client-side on unmount and there is no mechanism to reconnect or replay the partial/completed response. Fix requires either persisting the full streamed response to MongoDB as it arrives (so it can be loaded on return), or keeping the SSE connection alive in a background context and rehydrating the UI on re-navigation.
+- [ ] **[BUG]** Slash command chart picker — arrow key navigation resets to top. When using the arrow keys to move down through the chart list in the slash command dropdown, focus jumps back to the first item instead of advancing. Scrolling with mouse and clicking works fine.
 
 ### Up Next
-- [ ] Raise PR for `feat/dashboard-request-v2` → `main`, review and merge
-- [ ] Ops portal — Feedback page: wire up real actions (promote to RAG, mark reviewed, delete)
-- [ ] Ops portal — RAG Curation: update queries and curation workflow
+- [ ] Fix open bugs (see above)
 - [ ] Power BI export — format and integration approach TBD
 - [ ] Auth/access control hardening for production (separate ops vs user credentials, HTTPS-only cookies)
 
