@@ -18,9 +18,9 @@ All services run via **Docker Compose**. LLM and embedding models are consumed v
 
 > **This is the core of the system.** Open the interactive design document in your browser:
 >
-> **[`docs/agent-pipeline-design.html`](docs/agent-pipeline-design.html)**
+> **[`docs/agent-pipeline-design.html`](https://htmlpreview.github.io/?https://github.com/vignesh-deva/generative-bi/blob/main/docs/agent-pipeline-design.html)**
 >
-> To view: open the file directly in any browser, or run `start docs/agent-pipeline-design.html` (Windows) / `open docs/agent-pipeline-design.html` (Mac).
+> Click the link above to open directly in your browser — no download required. Or, if you have the repo locally: `start docs/agent-pipeline-design.html` (Windows) / `open docs/agent-pipeline-design.html` (Mac).
 
 The pipeline is a multi-stage agentic system with parallel fan-out, a self-repair loop, and a small/large model split for cost and latency optimization. The full graph is implemented in LangGraph — see [`user_portal/backend/graph/pipeline.py`](user_portal/backend/graph/pipeline.py).
 
