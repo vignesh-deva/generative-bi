@@ -116,6 +116,9 @@ A running log of decisions, next steps, and open questions for the Generative BI
 - [x] `PORTAL_USERNAME=testuser`, `PORTAL_PASSWORD=testpass`, `JWT_SECRET` added to root `.env` and all `.env.example` files; passed to Docker services via docker-compose
 - [x] Separate session cookies — user portal uses `auth_token`, ops portal uses `ops_auth_token` — sessions are fully independent
 
+### Open Bugs
+- [ ] **[BUG]** SSE response lost on session switch — if the user navigates to another chat while a response is still streaming and then returns, the in-progress response is gone. The stream is abandoned client-side on unmount and there is no mechanism to reconnect or replay the partial/completed response. Fix requires either persisting the full streamed response to MongoDB as it arrives (so it can be loaded on return), or keeping the SSE connection alive in a background context and rehydrating the UI on re-navigation.
+
 ### Up Next
 - [ ] Raise PR for `feat/dashboard-request-v2` → `main`, review and merge
 - [ ] Ops portal — Feedback page: wire up real actions (promote to RAG, mark reviewed, delete)

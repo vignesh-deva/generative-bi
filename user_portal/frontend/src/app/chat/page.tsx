@@ -7,6 +7,7 @@ import {
   ChevronRight, ChevronDown, FilePlus, ThumbsUp, ThumbsDown,
 } from "lucide-react";
 import {
+  emitSessionCreated,
   fetchMessages,
   submitFeedback,
   type ChatContext,
@@ -123,6 +124,9 @@ type HistoryMessage = {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// Per-session message cache — survives navigation within the tab
+const sessionMessageCache = new Map<string, Message[]>();
+
 // ── Chat page ─────────────────────────────────────────────────────
 
 function ChatPageInner() {
@@ -140,6 +144,8 @@ function ChatPageInner() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   const streamingMsgIdRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const currentMessagesRef = useRef<Message[]>([]);
   const searchParams = useSearchParams();
   const sessionParam = searchParams.get("session");
 
@@ -222,35 +228,91 @@ function ChatPageInner() {
 
   // Load session history whenever the ?session= param changes
   useEffect(() => {
+    // Persist the outgoing session's messages before doing anything.
+    // Trim any trailing assistant reply with no content — the stream was aborted
+    // before tokens arrived, so caching it would leave an empty/stuck bubble.
+    if (
+      sessionIdRef.current &&
+      sessionIdRef.current !== sessionParam &&
+      currentMessagesRef.current.length > 0
+    ) {
+      const msgs = currentMessagesRef.current;
+      const last = msgs[msgs.length - 1];
+      const toCache =
+        last?.role === "assistant" && !last.content
+          ? msgs.slice(0, -1)
+          : msgs;
+      sessionMessageCache.set(sessionIdRef.current, toCache);
+    }
+
     if (!sessionParam) {
+      // "New chat" — just clear the view. The previous session is already
+      // preserved in the cache above.
+      abortRef.current?.abort();
+      // Clear streaming state immediately so no ghost spinners linger.
+      setStreaming(false);
+      streamingMsgIdRef.current = null;
       sessionIdRef.current = null;
       setMessages([]);
+      currentMessagesRef.current = [];
       return;
     }
     if (sessionIdRef.current === sessionParam) return;
 
+    // Cancel any in-flight stream from the old session and clear streaming
+    // state immediately — without this, cached messages briefly show an
+    // active spinner until the AbortError finally block fires.
+    abortRef.current?.abort();
+    setStreaming(false);
+    streamingMsgIdRef.current = null;
+
     sessionIdRef.current = sessionParam;
+
+    // Restore from cache — avoids losing an in-progress or just-completed reply.
+    // Always call setLoadingHistory(false) here: if a prior navigation started
+    // a fetch that was abandoned before completing, loadingHistory would otherwise
+    // stay true forever, hiding the cached messages behind a spinner.
+    const cached = sessionMessageCache.get(sessionParam);
+    if (cached && cached.length > 0) {
+      setMessages(cached);
+      currentMessagesRef.current = cached;
+      setLoadingHistory(false);
+      return;
+    }
+
     setLoadingHistory(true);
     setMessages([]);
+    currentMessagesRef.current = [];
 
-    fetchMessages<HistoryMessage[]>(sessionParam)
+    const targetSession = sessionParam;
+    fetchMessages<HistoryMessage[]>(targetSession)
       .then((data) => {
-        setMessages(
-          data.map((m) => ({
-            id: crypto.randomUUID(),
-            serverMessageId: m.message_id ?? null,
-            role: m.role,
-            content: m.content,
-            sql: m.sql_query ?? undefined,
-            timestamp: new Date(m.created_at),
-            feedback: m.feedback ?? null,
-            feedbackComment: m.feedback_comment ?? null,
-          }))
-        );
+        // Discard stale results if the user has since navigated elsewhere
+        if (sessionIdRef.current !== targetSession) return;
+        const msgs = data.map((m) => ({
+          id: crypto.randomUUID(),
+          serverMessageId: m.message_id ?? null,
+          role: m.role,
+          content: m.content,
+          sql: m.sql_query ?? undefined,
+          timestamp: new Date(m.created_at),
+          feedback: m.feedback ?? null,
+          feedbackComment: m.feedback_comment ?? null,
+        }));
+        setMessages(msgs);
+        currentMessagesRef.current = msgs;
+        sessionMessageCache.set(targetSession, msgs);
       })
       .catch(() => {})
-      .finally(() => setLoadingHistory(false));
+      .finally(() => {
+        if (sessionIdRef.current === targetSession) setLoadingHistory(false);
+      });
   }, [sessionParam]);
+
+  // Keep ref in sync so session-change effect can read latest messages without stale closure
+  useEffect(() => {
+    currentMessagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -271,31 +333,87 @@ function ChatPageInner() {
       content: text,
       timestamp: new Date(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+    const assistantId = crypto.randomUUID();
+    const assistantMsg: Message = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      timestamp: new Date(),
+    };
+
+    // Local source of truth for this stream's full message list.
+    // Seeding from the ref (not state) guarantees we start from the currently
+    // displayed session's messages, not a stale render closure.
+    let streamMessages: Message[] = [
+      ...currentMessagesRef.current,
+      userMsg,
+      assistantMsg,
+    ];
+
+    // Capture the session this stream belongs to BEFORE any async work.
+    // For a brand-new chat, this will be null and we'll adopt the returned id.
+    const streamSessionId = sessionIdRef.current;
+
+    // Commit initial state and cancel any prior in-flight stream.
+    setMessages(streamMessages);
+    currentMessagesRef.current = streamMessages;
+    if (streamSessionId) {
+      sessionMessageCache.set(streamSessionId, streamMessages);
+    }
+    streamingMsgIdRef.current = assistantId;
     setInput("");
     setStreaming(true);
 
-    const assistantId = crypto.randomUUID();
-    streamingMsgIdRef.current = assistantId;
-    setMessages((prev) => [
-      ...prev,
-      { id: assistantId, role: "assistant", content: "", timestamp: new Date() },
-    ]);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    // Resolved once the response headers arrive. Until then, we haven't
+    // started streaming tokens so there's nothing to cache.
+    let activeSessionId: string | null = streamSessionId;
+
+    // Commit streamMessages: always update the cache for the stream's session,
+    // and update React state only if the user is still viewing that session.
+    function commit() {
+      if (activeSessionId) {
+        sessionMessageCache.set(activeSessionId, streamMessages);
+      }
+      if (sessionIdRef.current === activeSessionId) {
+        setMessages(streamMessages);
+        currentMessagesRef.current = streamMessages;
+      }
+    }
 
     try {
       const res = await fetch(`${API_BASE}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ query: text, session_id: sessionIdRef.current }),
+        body: JSON.stringify({ query: text, session_id: streamSessionId }),
+        signal: controller.signal,
       });
 
       if (!res.ok) throw new Error(`API error: ${res.status}`);
 
       const returnedSessionId = res.headers.get("X-Session-Id");
-      if (returnedSessionId && !sessionIdRef.current) {
+      if (returnedSessionId && !streamSessionId) {
+        // New chat just got a session id — adopt it, migrate cache, and
+        // notify the sidebar so it appears without a refresh.
         sessionIdRef.current = returnedSessionId;
-        window.history.replaceState(null, "", `/chat?session=${returnedSessionId}`);
+        activeSessionId = returnedSessionId;
+        sessionMessageCache.set(returnedSessionId, streamMessages);
+        window.history.replaceState(
+          null,
+          "",
+          `/chat?session=${returnedSessionId}`,
+        );
+        emitSessionCreated({
+          session_id: returnedSessionId,
+          title: text.slice(0, 80),
+          updated_at: new Date().toISOString(),
+        });
+      } else if (!activeSessionId && returnedSessionId) {
+        activeSessionId = returnedSessionId;
       }
 
       const reader = res.body?.getReader();
@@ -321,10 +439,8 @@ function ChatPageInner() {
               const parsed = JSON.parse(data);
               if (parsed.type === "message_id") {
                 const serverMessageId = parsed.content as string;
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId ? { ...m, serverMessageId } : m
-                  )
+                streamMessages = streamMessages.map((m) =>
+                  m.id === assistantId ? { ...m, serverMessageId } : m,
                 );
                 continue;
               } else if (parsed.type === "step") {
@@ -332,10 +448,8 @@ function ChatPageInner() {
               } else if (parsed.type === "token") {
                 if (!firstTokenSeen) {
                   firstTokenSeen = true;
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantId ? { ...m, stepsOpen: false } : m
-                    )
+                  streamMessages = streamMessages.map((m) =>
+                    m.id === assistantId ? { ...m, stepsOpen: false } : m,
                   );
                 }
                 accumulated += parsed.content;
@@ -349,39 +463,40 @@ function ChatPageInner() {
             }
           }
 
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? {
-                    ...m,
-                    content: accumulated,
-                    sql: sql || undefined,
-                    steps: steps.length > 0 ? steps : undefined,
-                    stepsOpen: m.stepsOpen ?? true,
-                  }
-                : m
-            )
+          streamMessages = streamMessages.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  content: accumulated,
+                  sql: sql || undefined,
+                  steps: steps.length > 0 ? steps : undefined,
+                  stepsOpen: m.stepsOpen ?? true,
+                }
+              : m,
           );
+          commit();
         }
       }
 
       if (!accumulated) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? { ...m, content: "Sorry, I couldn't generate a response." }
-              : m
-          )
-        );
-      }
-    } catch {
-      setMessages((prev) =>
-        prev.map((m) =>
+        streamMessages = streamMessages.map((m) =>
           m.id === assistantId
-            ? { ...m, content: "Failed to connect to the server. Please try again." }
-            : m
-        )
+            ? { ...m, content: "Sorry, I couldn't generate a response." }
+            : m,
+        );
+        commit();
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      streamMessages = streamMessages.map((m) =>
+        m.id === assistantId
+          ? {
+              ...m,
+              content: "Failed to connect to the server. Please try again.",
+            }
+          : m,
       );
+      commit();
     } finally {
       streamingMsgIdRef.current = null;
       setStreaming(false);

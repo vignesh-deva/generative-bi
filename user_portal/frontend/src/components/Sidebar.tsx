@@ -10,7 +10,7 @@ import {
   BarChart3,
   PanelLeftClose,
 } from "lucide-react";
-import { fetchSessions } from "@/lib/api";
+import { fetchSessions, onSessionCreated } from "@/lib/api";
 
 type Session = {
   session_id: string;
@@ -43,6 +43,16 @@ export default function Sidebar({
         )
       )
       .catch(() => {});
+  }, []);
+
+  // Prepend newly created sessions so they appear without a page refresh
+  useEffect(() => {
+    return onSessionCreated((session) => {
+      setSessions((prev) => {
+        if (prev.some((s) => s.session_id === session.session_id)) return prev;
+        return [session, ...prev];
+      });
+    });
   }, []);
 
   return (

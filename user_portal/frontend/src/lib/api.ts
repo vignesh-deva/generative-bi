@@ -21,6 +21,28 @@ export async function fetchSessions<T>(): Promise<T> {
   return res.json();
 }
 
+// ── Session events (used to notify the sidebar when a new chat is created) ──
+
+export type SessionMeta = {
+  session_id: string;
+  title: string | null;
+  updated_at: string;
+};
+
+type SessionListener = (session: SessionMeta) => void;
+const sessionCreatedListeners = new Set<SessionListener>();
+
+export function onSessionCreated(fn: SessionListener): () => void {
+  sessionCreatedListeners.add(fn);
+  return () => {
+    sessionCreatedListeners.delete(fn);
+  };
+}
+
+export function emitSessionCreated(session: SessionMeta): void {
+  sessionCreatedListeners.forEach((fn) => fn(session));
+}
+
 export async function fetchMessages<T>(sessionId: string): Promise<T> {
   const res = await fetch(
     `${API_BASE}/api/history/sessions/${sessionId}/messages`,
