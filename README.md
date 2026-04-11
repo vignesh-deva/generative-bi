@@ -57,6 +57,22 @@ Stage 4: Response Synthesis
 
 ---
 
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Frontend** | Next.js 14 (App Router), Tailwind CSS, Recharts |
+| **Backend** | FastAPI (Python), Uvicorn, asyncpg, Motor |
+| **Agent Orchestration** | LangGraph v2 — parallel fan-out, conditional edges, self-repair loop |
+| **LLM / Embeddings** | Model-agnostic — any OpenAI-compatible endpoint (OpenAI, Anthropic, Ollama, LM Studio) |
+| **Business DB** | PostgreSQL 17 + pgvector extension |
+| **Chat / Session DB** | MongoDB 7 |
+| **Auth** | JWT (python-jose) — separate tokens per portal |
+| **Streaming** | Server-Sent Events (SSE) |
+| **Deployment** | Docker Compose (6 services) |
+
+---
+
 ## Architecture
 
 ```
@@ -115,7 +131,8 @@ generative-bi/
 │       │   ├── chat.py                  # POST /api/chat — SSE streaming via pipeline.ainvoke()
 │       │   ├── dashboard.py             # GET /api/dashboard/* — KPI + chart data
 │       │   ├── requests.py              # POST/GET /api/requests (8-state lifecycle)
-│       │   └── history.py               # GET /api/history/sessions
+│       │   ├── history.py               # GET /api/history/sessions
+│       │   └── feedback.py              # PATCH /api/feedback/:id — thumbs up/down + comment
 │       ├── db/
 │       │   ├── database.py              # PostgreSQL pool (asyncpg), read-only queries
 │       │   ├── mongo.py                 # MongoDB collections (motor)
@@ -141,8 +158,10 @@ generative-bi/
 │       ├── api/
 │       │   ├── auth.py                  # POST /auth/login — issues JWT; verify_token dependency
 │       │   ├── tickets.py               # GET/PATCH /api/tickets
-│       │   ├── feedback.py              # GET /api/feedback
+│       │   ├── feedback.py              # GET /api/feedback — review + dedup; POST /:id/promote → RAG
 │       │   └── rag.py                   # GET/POST /api/rag/fewshots
+│       ├── tools/
+│       │   └── embedding.py             # get_embedding() — shared by feedback dedup + rag insert
 │       ├── db/                          # Same PostgreSQL + MongoDB as portal
 │       └── config/settings.py
 │
@@ -179,10 +198,10 @@ generative-bi/
 | Page | Route | Description |
 |------|-------|-------------|
 | **Tickets** | `/` | View/manage dashboard requests from business users with status filter tabs |
-| **Feedback** | `/feedback` | Review thumbs-up/down feedback on AI responses with SQL preview |
+| **Feedback** | `/feedback` | Review thumbs-up/down feedback with SQL preview; dedup check against existing RAG store; promote good NL→SQL pairs directly into `fewshot_examples` |
 | **RAG Curation** | `/rag` | Manage few-shot NL-to-SQL examples — add, review, curate for accuracy |
 
-This creates a **human-in-the-loop feedback loop** that continuously improves NL-to-SQL accuracy.
+This creates a **human-in-the-loop feedback loop** that continuously improves NL-to-SQL accuracy: user feedback → ops review → promote to RAG → better SQL generation.
 
 ---
 
@@ -233,7 +252,7 @@ All data is persisted via Docker named volumes (`pg-data`, `mongo-data`). Data s
 - Streaming responses via SSE
 - Chat history persistence (MongoDB)
 - Dashboard request workflow — 8-state lifecycle with comment threads and auto-close
-- Operations Center for feedback review and RAG curation
+- Operations Center for feedback review, RAG curation, and feedback-to-RAG promotion (with similarity dedup)
 - JWT-based auth on both portals — credentials configured via `.env`
 - Model-agnostic — any OpenAI-compatible endpoint via `.env`
 - Dockerized — all services via `docker-compose up`
@@ -331,6 +350,36 @@ cd ops_portal/frontend
 npm install
 npm run dev          # starts on :3001
 ```
+
+---
+
+## Viewing Logs
+
+All services log to stdout and are accessible via `docker compose logs`.
+
+```bash
+# Stream all services (Ctrl+C to stop)
+docker compose logs -f
+
+# Stream a specific service
+docker compose logs -f portal-backend
+docker compose logs -f portal-frontend
+docker compose logs -f ops-backend
+docker compose logs -f ops-frontend
+docker compose logs -f postgres
+docker compose logs -f mongodb
+
+# Show last N lines then follow
+docker compose logs --tail=100 -f portal-backend
+
+# One-shot dump (no follow)
+docker compose logs portal-backend
+```
+
+> **Tip:** The agent pipeline logs each stage to stdout with structured context (e.g. `session_id`, `intent`, `sql_retries`). Filter with `grep` for quick debugging:
+> ```bash
+> docker compose logs -f portal-backend 2>&1 | grep "sql_agent\|validation\|insight"
+> ```
 
 ---
 

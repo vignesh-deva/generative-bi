@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 from agents.tools.sql_tools import dry_run_explain
 from agents.tools.schema_tools import pull_schema, value_samples, lookup_column
 from agents.tools.text_utils import strip_markdown_fences
+from utils.timing import AsyncTimedSpan
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=LLM_REQUEST_TIMEOUT)
 
@@ -167,29 +168,22 @@ async def correct_sql(
 
 LOGIC_CHECK_PROMPT = """You are a logic verification agent for a {domain} system.
 
-You have tools available to verify your suspicions. IMPORTANT: Do NOT guess or assume —
-if you are unsure about something, use a tool to check it before making a judgment.
+{schema_section}
 
 Your job: Given the user's question, the SQL query, and the query results, verify that:
 1. The SQL query logically answers the user's question
 2. The results make sense (reasonable values, correct date ranges, expected row counts)
 3. The aggregations, groupings, and filters match what was asked
-4. Entity names used in filters actually exist in the database (use lookup_column to verify)
-5. Date ranges in results are valid (use get_current_date to check)
+4. Entity names used in filters actually exist in the database
+5. Date ranges in results are valid (today is {today})
 
-Available verification tools:
-- get_current_date: Check today's actual date before flagging any date issue
-- lookup_column: Search the database for actual values — type-aware (text: distinct/search, numeric: AVG/MIN/MAX, date: range)
-- get_schema: Check column names, types, and table structure
-- get_join_info: Verify foreign key join paths
-- run_test_query: Test if an alternative SQL query would be valid
+{tool_guidance}
 
-After your verification, respond with your final verdict:
-- If the logic is correct: CORRECT
-- If there is a genuine logic issue: INCORRECT: <brief description of the issue and what should be fixed>
+IMPORTANT: Your final response MUST start with exactly one of these two lines:
+- CORRECT
+- INCORRECT: <brief description of the issue>
 
-Be lenient — minor formatting differences are OK. Only flag genuine logic errors that would
-give the user wrong information."""
+Do not add any text before CORRECT or INCORRECT."""
 
 LOGIC_CHECK_TOOLS = [
     {
@@ -315,18 +309,59 @@ async def _dispatch_tool(name: str, arguments: dict) -> str:
 
 
 def _parse_logic_verdict(text: str) -> tuple[bool, str]:
-    """Parse the logic checker's verdict from its text response."""
+    """Parse the logic checker's verdict from its text response.
+
+    Handles three response styles from the LLM:
+    1. Clean:   "CORRECT" or "INCORRECT: reason"
+    2. Verbose: multi-line analysis ending with "**Final Verdict**: CORRECT"
+    3. Mixed:   CORRECT/INCORRECT embedded anywhere in the response
+
+    Uses whole-word matching so "CORRECT" inside "INCORRECT" is not a false pass.
+    Prefers the LAST occurrence when the response contains multiple verdict words.
+    """
     if not text:
         logger.warning("logic_check empty response, defaulting to passed")
         return True, ""
 
-    if text.upper().startswith("CORRECT"):
-        logger.info("logic_check=passed")
+    # Fast path: clean one-line response starting with the verdict keyword
+    upper_stripped = text.lstrip("*# \t\n").upper()
+    if upper_stripped.startswith("CORRECT"):
+        logger.info("logic_check=passed (clean)")
+        return True, ""
+    if upper_stripped.startswith("INCORRECT"):
+        feedback = re.sub(r"(?i)^incorrect[:\s]*", "", text.lstrip("*# \t\n")).strip()
+        logger.warning("logic_check=failed (clean) feedback=%s", feedback)
+        return False, feedback
+
+    # Verbose path: scan for the last INCORRECT / CORRECT word boundary match.
+    # \bCORRECT\b does NOT match inside "INCORRECT" because the preceding 'R'
+    # is a word character, so no word boundary exists before the 'C'.
+    last_incorrect = None
+    last_correct = None
+    for m in re.finditer(r"(?i)\bINCORRECT\b", text):
+        last_incorrect = m
+    for m in re.finditer(r"(?i)\bCORRECT\b", text):
+        last_correct = m
+
+    if last_incorrect is None and last_correct is None:
+        # No verdict keyword found — default to passed (be lenient per original intent)
+        logger.warning("logic_check: no verdict keyword found, defaulting to passed text=%.120s", text)
         return True, ""
 
-    feedback = re.sub(r"(?i)^incorrect:\s*", "", text).strip()
-    logger.warning("logic_check=failed feedback=%s", feedback)
-    return False, feedback
+    # Determine which verdict comes last in the response
+    incorrect_pos = last_incorrect.end() if last_incorrect else -1
+    correct_pos = last_correct.end() if last_correct else -1
+
+    if incorrect_pos > correct_pos:
+        # INCORRECT is the final verdict
+        after = text[last_incorrect.end():].lstrip(":- \t")
+        feedback = after.strip() if after.strip() else text[:200]
+        logger.warning("logic_check=failed (verbose) feedback=%s", feedback)
+        return False, feedback
+
+    # CORRECT is the final verdict
+    logger.info("logic_check=passed (verbose)")
+    return True, ""
 
 
 async def _check_logic_agentic(messages: list[dict]) -> tuple[bool, str]:
@@ -334,14 +369,15 @@ async def _check_logic_agentic(messages: list[dict]) -> tuple[bool, str]:
     final_text = ""
     exhausted_with_tool_calls = False
     for round_num in range(MAX_TOOL_ROUNDS):
-        response = await _client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=messages,
-            tools=LOGIC_CHECK_TOOLS,
-            tool_choice="auto",
-            temperature=0,
-            max_tokens=500,
-        )
+        async with AsyncTimedSpan(f"logic_check.llm_round_{round_num + 1}"):
+            response = await _client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=messages,
+                tools=LOGIC_CHECK_TOOLS,
+                tool_choice="auto",
+                temperature=0,
+                max_tokens=500,
+            )
         msg = response.choices[0].message
         # Append assistant message to conversation
         messages.append(msg)
@@ -355,20 +391,24 @@ async def _check_logic_agentic(messages: list[dict]) -> tuple[bool, str]:
             round_num + 1, len(msg.tool_calls),
         )
 
-        for tc in msg.tool_calls:
-            tool_name = tc.function.name
-            try:
-                tool_args = json.loads(tc.function.arguments)
-            except json.JSONDecodeError:
-                tool_args = {}
-            logger.info("logic_check tool=%s args=%s", tool_name, tool_args)
+        async with AsyncTimedSpan(
+            f"logic_check.tools_round_{round_num + 1}",
+            calls=len(msg.tool_calls),
+        ):
+            for tc in msg.tool_calls:
+                tool_name = tc.function.name
+                try:
+                    tool_args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    tool_args = {}
+                logger.info("logic_check tool=%s args=%s", tool_name, tool_args)
 
-            result = await _dispatch_tool(tool_name, tool_args)
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": str(result),
-            })
+                result = await _dispatch_tool(tool_name, tool_args)
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": str(result),
+                })
 
         # Track whether the final round ended with pending tool calls
         exhausted_with_tool_calls = (round_num == MAX_TOOL_ROUNDS - 1)
@@ -421,12 +461,15 @@ async def check_logic(
     query: str,
     sql: str,
     result: dict,
+    schema_context: str = "",
 ) -> tuple[bool, str]:
     """Check if the SQL query logically answers the user's question.
 
-    Uses an agentic tool-calling loop to verify suspicions before
-    rendering a verdict. Falls back to single-shot if the LLM provider
-    does not support function calling.
+    If schema_context is provided (columns, types, value samples from schema_linker),
+    it is embedded directly in the system prompt so the LLM can skip get_schema /
+    lookup_column tool calls — cutting the agentic round-trip count from 3 to 1.
+
+    Falls back to single-shot if the LLM provider does not support function calling.
     """
     rows = result.get("rows", [])
     columns = result.get("columns", [])
@@ -439,7 +482,36 @@ async def check_logic(
         if row_count > 5:
             result_preview += f"... ({row_count - 5} more rows)\n"
 
-    system_prompt = LOGIC_CHECK_PROMPT.format(domain=DOMAIN_DESCRIPTION)
+    # When schema context is available, embed it and tell the LLM not to call
+    # get_schema / lookup_column for things already answered by the context.
+    if schema_context:
+        schema_section = (
+            "The following schema and value samples are already available to you "
+            "— use them directly without calling get_schema or lookup_column "
+            "unless you need something not shown here:\n\n"
+            + schema_context[:3000]  # cap to avoid token budget blowout
+        )
+        tool_guidance = (
+            "Only use tools if you need information not covered by the schema above "
+            "(e.g., a date range check with get_current_date, or a value that isn't in "
+            "the samples). Prefer giving a direct verdict based on the available context."
+        )
+    else:
+        schema_section = (
+            "You have tools available to verify your suspicions. "
+            "Do NOT guess — use a tool to check before making a judgment."
+        )
+        tool_guidance = (
+            "Available tools: get_current_date, lookup_column, get_schema, "
+            "get_join_info, run_test_query."
+        )
+
+    system_prompt = LOGIC_CHECK_PROMPT.format(
+        domain=DOMAIN_DESCRIPTION,
+        today=date.today().isoformat(),
+        schema_section=schema_section,
+        tool_guidance=tool_guidance,
+    )
 
     messages = [
         {"role": "system", "content": system_prompt},

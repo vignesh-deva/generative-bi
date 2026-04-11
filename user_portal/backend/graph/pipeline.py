@@ -37,6 +37,7 @@ from agents.response_agent import generate_response
 from agents.tools.history_tools import fetch_chat_history
 from agents.tools.sql_tools import run_query
 from config.settings import MAX_SQL_RETRIES
+from utils.timing import timed_node
 
 
 # ── State schema ───────────────────────────────────────────────────
@@ -65,6 +66,7 @@ class PipelineState(TypedDict, total=False):
 
     # Stage 2: SQL Agent
     sql_query: str
+    sql_strategy: str                     # "adapt" | "single" | "multi"
 
     # Stage 3: Validation loop
     dry_run_retries: int
@@ -91,6 +93,7 @@ class PipelineState(TypedDict, total=False):
 
 # ── Stage 0: Fetch chat history ──────────────────────────────────
 
+@timed_node("fetch_history")
 async def history_node(state: PipelineState) -> PipelineState:
     session_id = state.get("session_id", "")
     history = await fetch_chat_history(session_id, limit=10)
@@ -99,6 +102,7 @@ async def history_node(state: PipelineState) -> PipelineState:
 
 # ── Stage 0B: Query Rewriter ────────────────────────────────────
 
+@timed_node("query_rewriter")
 async def rewrite_node(state: PipelineState) -> PipelineState:
     rewritten = await rewrite_query(
         state["query"],
@@ -109,6 +113,7 @@ async def rewrite_node(state: PipelineState) -> PipelineState:
 
 # ── Stage 1: Pre-processing (parallel) ──────────────────────────
 
+@timed_node("classifier")
 async def classify_node(state: PipelineState) -> PipelineState:
     intent = await classify(
         state["query"],
@@ -117,11 +122,13 @@ async def classify_node(state: PipelineState) -> PipelineState:
     return {"intent": intent}
 
 
+@timed_node("guardrails")
 async def guardrails_node(state: PipelineState) -> PipelineState:
     passed, reason = await check_guardrails(state["query"])
     return {"guardrail_passed": passed, "guardrail_reason": reason}
 
 
+@timed_node("rag")
 async def rag_node(state: PipelineState) -> PipelineState:
     examples = await retrieve_examples(state["query"])
     return {"few_shot_examples": examples}
@@ -151,6 +158,7 @@ def route_after_fanin(state: PipelineState) -> str:
 
 # ── Non-analytics exit: Response Agent ───────────────────────────
 
+@timed_node("response_agent")
 async def response_node(state: PipelineState) -> PipelineState:
     """Handle all non-analytics intents via Response Agent."""
     intent = state.get("intent", "chitchat")
@@ -170,6 +178,7 @@ async def response_node(state: PipelineState) -> PipelineState:
 
 # ── Stage 1B: Schema Linker ─────────────────────────────────────
 
+@timed_node("schema_linker")
 async def schema_linker_node(state: PipelineState) -> PipelineState:
     result = await link_schema(state["query"])
     return {
@@ -181,8 +190,9 @@ async def schema_linker_node(state: PipelineState) -> PipelineState:
 
 # ── Stage 2: SQL Agent ──────────────────────────────────────────
 
+@timed_node("sql_agent")
 async def sql_node(state: PipelineState) -> PipelineState:
-    sql = await generate_sql(
+    sql, strategy = await generate_sql(
         query=state["query"],
         schema_context=state.get("schema_context", ""),
         semantic_context=state.get("semantic_context", ""),
@@ -191,6 +201,7 @@ async def sql_node(state: PipelineState) -> PipelineState:
     )
     return {
         "sql_query": sql,
+        "sql_strategy": strategy,
         "dry_run_retries": state.get("dry_run_retries", 0),
         "logic_retries": state.get("logic_retries", 0),
     }
@@ -198,6 +209,7 @@ async def sql_node(state: PipelineState) -> PipelineState:
 
 # ── Stage 3: Dry-Run Validation ──────────────────────────────────
 
+@timed_node("dry_run")
 async def dry_run_node(state: PipelineState) -> PipelineState:
     passed, result = await validate_dry_run(state["sql_query"])
     return {"dry_run_passed": passed, "dry_run_error": "" if passed else result}
@@ -226,6 +238,7 @@ def route_after_dry_run(state: PipelineState) -> str:
 
 # ── Stage 3: Error path ─────────────────────────────────────────
 
+@timed_node("error_classifier")
 async def error_classify_node(state: PipelineState) -> PipelineState:
     category = await classify_error(
         state.get("sql_query", ""),
@@ -234,6 +247,7 @@ async def error_classify_node(state: PipelineState) -> PipelineState:
     return {"error_category": category}
 
 
+@timed_node("correction_agent")
 async def correction_node(state: PipelineState) -> PipelineState:
     retries = state.get("dry_run_retries", 0) + 1
     logger.info("correction attempt dry_run_retry=%d/%d", retries, MAX_SQL_RETRIES)
@@ -249,6 +263,7 @@ async def correction_node(state: PipelineState) -> PipelineState:
 
 # ── Stage 3: Execute + Logic Check ───────────────────────────────
 
+@timed_node("execute")
 async def execute_node(state: PipelineState) -> PipelineState:
     try:
         result = await run_query(state["sql_query"])
@@ -262,14 +277,24 @@ async def execute_node(state: PipelineState) -> PipelineState:
 def route_after_execute(state: PipelineState) -> str:
     if state.get("query_error"):
         return "execution_failed"
+    # On the adapt path the SQL is based on a curated, human-promoted RAG
+    # example — trust it and skip the agentic logic check entirely. That
+    # check is a multi-round LLM + tool-calling loop that dominates the
+    # tail latency of otherwise-cached queries. The earlier dry-run already
+    # validated the SQL syntactically, so we go straight to insight.
+    if state.get("sql_strategy") == "adapt":
+        logger.info("route_after_execute: skipping logic_check on adapt path")
+        return "adapt_skip_logic"
     return "executed"
 
 
+@timed_node("logic_check")
 async def logic_check_node(state: PipelineState) -> PipelineState:
     passed, feedback = await check_logic(
         query=state["query"],
         sql=state.get("sql_query", ""),
         result=state.get("query_result", {}),
+        schema_context=state.get("schema_context", ""),
     )
     return {"logic_passed": passed, "logic_feedback": feedback}
 
@@ -283,6 +308,7 @@ def route_after_logic(state: PipelineState) -> str:
     return "logic_error"
 
 
+@timed_node("logic_correction")
 async def logic_error_to_correction_node(state: PipelineState) -> PipelineState:
     """Convert logic error into a correction attempt.
 
@@ -311,6 +337,7 @@ async def logic_error_to_correction_node(state: PipelineState) -> PipelineState:
 
 # ── Stage 4: Insight Agent ───────────────────────────────────────
 
+@timed_node("insight_agent")
 async def insight_node(state: PipelineState) -> PipelineState:
     if state.get("query_error"):
         return {
@@ -406,10 +433,15 @@ def build_pipeline() -> StateGraph:
     graph.add_edge("correction_agent", "dry_run")
 
     # ── Execute -> check for errors ──────────────────────────
+    # Adapt path skips logic_check entirely (curated RAG match is trusted).
     graph.add_conditional_edges(
         "execute",
         route_after_execute,
-        {"executed": "logic_check", "execution_failed": "insight_agent"},
+        {
+            "executed": "logic_check",
+            "execution_failed": "insight_agent",
+            "adapt_skip_logic": "insight_agent",
+        },
     )
 
     # ── Logic check routing ──────────────────────────────────

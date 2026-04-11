@@ -16,6 +16,7 @@ from config.settings import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL_SMALL, DOMAIN_D
 logger = logging.getLogger(__name__)
 from agents.tools.schema_tools import list_tables, pull_schema, pull_value_samples
 from agents.tools.semantic_tools import get_semantic_context
+from utils.timing import AsyncTimedSpan
 
 # Cap fallback table count to keep the schema prompt within context budget
 # when the LLM returns no valid tables.
@@ -51,20 +52,22 @@ async def link_schema(query: str) -> dict:
             "semantic_context": "METRIC DEFINITIONS:\n  ...",
         }
     """
-    all_tables = await list_tables()
+    async with AsyncTimedSpan("schema_linker.list_tables"):
+        all_tables = await list_tables()
 
-    response = await _client.chat.completions.create(
-        model=LLM_MODEL_SMALL,
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT.format(domain=DOMAIN_DESCRIPTION, tables=", ".join(all_tables)),
-            },
-            {"role": "user", "content": query},
-        ],
-        temperature=0,
-        max_tokens=100,
-    )
+    async with AsyncTimedSpan("schema_linker.llm_pick_tables"):
+        response = await _client.chat.completions.create(
+            model=LLM_MODEL_SMALL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT.format(domain=DOMAIN_DESCRIPTION, tables=", ".join(all_tables)),
+                },
+                {"role": "user", "content": query},
+            ],
+            temperature=0,
+            max_tokens=100,
+        )
 
     raw = response.choices[0].message.content.strip()
     linked_tables = [
@@ -84,8 +87,10 @@ async def link_schema(query: str) -> dict:
 
     logger.info("linked_tables=%s query=%.80s", linked_tables, query)
 
-    schema_context = await pull_schema(linked_tables)
-    value_context = await pull_value_samples(linked_tables)
+    async with AsyncTimedSpan("schema_linker.pull_schema", tables=len(linked_tables)):
+        schema_context = await pull_schema(linked_tables)
+    async with AsyncTimedSpan("schema_linker.pull_value_samples", tables=len(linked_tables)):
+        value_context = await pull_value_samples(linked_tables)
     if value_context:
         schema_context = schema_context + "\n" + value_context
     semantic_context = get_semantic_context(linked_tables)

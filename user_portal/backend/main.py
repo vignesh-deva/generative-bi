@@ -16,10 +16,11 @@ from api.auth import router as auth_router
 from api.auth import verify_token
 from api.dashboard import router as dashboard_router
 from api.chat import router as chat_router
+from api.feedback import router as feedback_router
 from api.history import router as history_router
 from api.requests import router as requests_router
 from db.database import get_pool, close_pool
-from db.mongo import close_client, create_indexes, migrate_dashboard_requests
+from db.mongo import close_client, create_indexes, migrate_dashboard_requests, backfill_message_ids
 
 
 @asynccontextmanager
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI):
     await get_pool()
     await create_indexes()
     await migrate_dashboard_requests()
+    await backfill_message_ids()
     yield
     await close_pool()
     await close_client()
@@ -50,6 +52,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(dashboard_router, dependencies=[Depends(verify_token)])
 app.include_router(chat_router, dependencies=[Depends(verify_token)])
+app.include_router(feedback_router, dependencies=[Depends(verify_token)])
 app.include_router(history_router, dependencies=[Depends(verify_token)])
 app.include_router(requests_router, dependencies=[Depends(verify_token)])
 

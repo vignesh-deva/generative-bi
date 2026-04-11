@@ -21,6 +21,28 @@ export async function fetchSessions<T>(): Promise<T> {
   return res.json();
 }
 
+// ── Session events (used to notify the sidebar when a new chat is created) ──
+
+export type SessionMeta = {
+  session_id: string;
+  title: string | null;
+  updated_at: string;
+};
+
+type SessionListener = (session: SessionMeta) => void;
+const sessionCreatedListeners = new Set<SessionListener>();
+
+export function onSessionCreated(fn: SessionListener): () => void {
+  sessionCreatedListeners.add(fn);
+  return () => {
+    sessionCreatedListeners.delete(fn);
+  };
+}
+
+export function emitSessionCreated(session: SessionMeta): void {
+  sessionCreatedListeners.forEach((fn) => fn(session));
+}
+
 export async function fetchMessages<T>(sessionId: string): Promise<T> {
   const res = await fetch(
     `${API_BASE}/api/history/sessions/${sessionId}/messages`,
@@ -28,6 +50,22 @@ export async function fetchMessages<T>(sessionId: string): Promise<T> {
   );
   if (!res.ok) throw new Error(`Messages API error: ${res.status}`);
   return res.json();
+}
+
+export type FeedbackVote = "up" | "down" | null;
+
+export async function submitFeedback(
+  messageId: string,
+  vote: FeedbackVote,
+  comment: string | null
+): Promise<{ message_id: string; feedback: FeedbackVote; feedback_comment: string | null }> {
+  const res = await fetch(`${API_BASE}/api/feedback/${messageId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ feedback: vote, comment }),
+  });
+  return jsonOrError(res, "Submit feedback failed");
 }
 
 // ── Dashboard request types ──────────────────────────────────────

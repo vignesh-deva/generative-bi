@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 _client = AsyncOpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY, timeout=LLM_REQUEST_TIMEOUT)
 
-RAG_SIMILARITY_THRESHOLD = 0.85
+RAG_SIMILARITY_THRESHOLD = 0.80
 
 # ── Decomposer sub-agent ────────────────────────────────────────
 
@@ -206,13 +206,13 @@ async def _adapt_matched_sql(
     )
 
     response = await _client.chat.completions.create(
-        model=LLM_MODEL,
+        model=LLM_MODEL_SMALL,
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": query},
         ],
         temperature=0,
-        max_tokens=1024,
+        max_tokens=512,
     )
 
     sql = strip_markdown_fences(response.choices[0].message.content)
@@ -228,10 +228,11 @@ async def generate_sql(
     semantic_context: str = "",
     few_shot_examples: list[dict] | None = None,
     chat_history: list[dict] | None = None,
-) -> str:
+) -> tuple[str, str]:
     """Generate SQL for the user's query.
 
     Orchestrates: Decomposer -> (adapt | single | multi-step) SQL generation.
+    Returns (sql, strategy) where strategy is "adapt" | "single" | "multi".
     """
     examples = few_shot_examples or []
     history = chat_history or []
@@ -239,9 +240,10 @@ async def generate_sql(
     plan = await _decompose(query, examples)
 
     if plan["strategy"] == "adapt":
-        return await _adapt_matched_sql(
+        sql = await _adapt_matched_sql(
             query, plan["matched"], schema_context, semantic_context
         )
+        return sql, "adapt"
 
     if plan["strategy"] == "multi":
         # For multi-step, generate a CTE-based query that combines sub-queries
@@ -251,11 +253,13 @@ async def generate_sql(
             + "\n\nGenerate a single SQL query (using CTEs/subqueries) that combines all steps."
             + f"\n\nOriginal question: {query}"
         )
-        return await _generate_single_sql(
+        sql = await _generate_single_sql(
             combined_query, schema_context, semantic_context, examples, history
         )
+        return sql, "multi"
 
     # Single strategy (default)
-    return await _generate_single_sql(
+    sql = await _generate_single_sql(
         query, schema_context, semantic_context, examples, history
     )
+    return sql, "single"

@@ -48,3 +48,8 @@ async def create_indexes():
     await dashboard_requests().create_index("updated_at")
     await dashboard_requests().create_index("session_id", sparse=True)
     await dashboard_requests().create_index("auto_close_eligible_at", sparse=True)
+    # Feedback review indexes — mirror user_portal so ops_portal can start alone.
+    await chat_messages().create_index("message_id", unique=True, sparse=True)
+    await chat_messages().create_index(
+        [("feedback", 1), ("created_at", -1)], sparse=True
+    )
